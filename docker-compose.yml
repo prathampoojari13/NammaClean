@@ -1,0 +1,25 @@
+services:
+  nammaclean-db:
+    image: postgis/postgis:16-3.4
+    container_name: nammaclean_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nammaclean_db}
+      POSTGRES_USER: ${POSTGRES_USER:-nammaclean_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      # Map host port 5433 to container port 5432 to avoid collision with port 5432
+      - "5433:5432"
+    volumes:
+      - nammaclean_postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nammaclean_admin} -d ${POSTGRES_DB:-nammaclean_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  nammaclean_postgis_data:
+    name: nammaclean_postgis_data
