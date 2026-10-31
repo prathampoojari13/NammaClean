@@ -1,5 +1,8 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -41,6 +44,30 @@ app.add_middleware(
 
 # Include v1 API endpoints
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Sanitizes validation errors to ensure sensitive fields (such as passwords and secrets)
+    are never returned to the client in HTTP 422 responses or logged in plaintext.
+    """
+    raw_errors = jsonable_encoder(exc.errors())
+    sanitized_errors = []
+    for error in raw_errors:
+        err_dict = dict(error)
+        loc_parts = [str(part).lower() for part in err_dict.get("loc", ())]
+        if any(sensitive in loc_parts for sensitive in ("password", "secret", "token")):
+            err_dict.pop("input", None)
+            if "ctx" in err_dict and isinstance(err_dict["ctx"], dict):
+                err_dict["ctx"] = {k: v for k, v in err_dict["ctx"].items() if k != "error"}
+        sanitized_errors.append(err_dict)
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": sanitized_errors},
+    )
+
+
 
 
 @app.get("/", tags=["Root"])

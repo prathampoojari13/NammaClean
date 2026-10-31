@@ -1,5 +1,6 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Optional, Literal
 
 
 class Settings(BaseSettings):
@@ -12,7 +13,6 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # CORS Origins (configurable list of allowed client origins)
-
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -28,6 +28,22 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "nammaclean_db"
     POSTGRES_USER: str = "nammaclean_admin"
     POSTGRES_PASSWORD: str = ""
+
+    # Security & JWT Configuration (Secrets loaded from .env without insecure fallbacks)
+    JWT_SECRET_KEY: str = ""
+    JWT_ALGORITHM: Literal["HS256"] = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0, le=10080)
+
+    # Controlled GPS Simulation Engine & Map Data Controls
+    SIMULATION_ENABLED: bool = False
+    VEHICLE_FRESHNESS_MINUTES: int = 15
+
+    # Evidence Storage Configuration (Local filesystem storage for development)
+    EVIDENCE_STORAGE_PATH: str = "data/uploads/evidence"
+    MAX_EVIDENCE_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB limit
+
+
+
 
 
     # Async Database URL (used by FastAPI asyncpg)

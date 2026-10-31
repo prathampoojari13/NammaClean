@@ -54,3 +54,8 @@ $RECYCLE.BIN/
 # Local database dumps & SQLite (if any created locally)
 *.sqlite3
 *.db
+backups/
+*.dump
+
+# Local evidence and media uploads
+data/uploads/

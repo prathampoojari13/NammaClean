@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock
+from app.core.config import settings
 from app.core.database import check_database_connection
 
 
@@ -78,5 +79,5 @@ async def test_database_direct_ping():
     assert db_status["connected"] is True
     assert db_status["postgis_installed"] is True
     assert isinstance(db_status["latency_ms"], (int, float))
-    assert db_status["database"] == "nammaclean_db"
+    assert db_status["database"] == settings.POSTGRES_DB
     assert db_status["port"] == 5433

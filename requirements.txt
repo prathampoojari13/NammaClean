@@ -17,6 +17,10 @@ alembic==1.14.0
 geoalchemy2==0.17.0
 shapely==2.0.6
 
+# Security & Cryptography
+pwdlib[argon2]==0.3.1
+pyjwt==2.15.1
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.25.0
