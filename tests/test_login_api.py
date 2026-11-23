@@ -12,8 +12,16 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.security import decode_access_token, hash_password
+from app.api.v1.auth import login_rate_limiter
 from app.models.enums import UserRole, UserStatus
 from app.models.user import User
+
+
+@pytest.fixture(autouse=True)
+def reset_login_rate_limit_state():
+    login_rate_limiter.reset()
+    yield
+    login_rate_limiter.reset()
 
 
 @pytest.mark.asyncio

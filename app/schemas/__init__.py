@@ -1,5 +1,6 @@
 from app.schemas.user import (
     UserRegisterRequest,
+    UserProfileUpdateRequest,
     UserResponse,
     AdminUserCreateRequest,
     UserWardAssignmentResponse,
@@ -10,7 +11,17 @@ from app.schemas.collection_point import (
     CollectionPointUpdateRequest,
     CollectionPointResponse,
 )
-from app.schemas.ward import PublicWardResponse
+from app.schemas.ward import PublicWardResponse, WardSummaryResponse
+from app.schemas.muster_point import (
+    MusterPointCreateRequest,
+    MusterPointUpdateRequest,
+    MusterPointResponse,
+)
+from app.schemas.attendance import (
+    AttendanceQrIssueResponse,
+    AttendanceQrCheckInRequest,
+    AttendanceQrCheckInResponse,
+)
 from app.schemas.vehicle import (
     VehicleCreateRequest,
     VehicleUpdateRequest,
@@ -54,6 +65,7 @@ from app.schemas.dumping_report import (
 
 __all__ = [
     "UserRegisterRequest",
+    "UserProfileUpdateRequest",
     "UserResponse",
     "AdminUserCreateRequest",
     "UserWardAssignmentResponse",
@@ -63,6 +75,13 @@ __all__ = [
     "CollectionPointUpdateRequest",
     "CollectionPointResponse",
     "PublicWardResponse",
+    "WardSummaryResponse",
+    "MusterPointCreateRequest",
+    "MusterPointUpdateRequest",
+    "MusterPointResponse",
+    "AttendanceQrIssueResponse",
+    "AttendanceQrCheckInRequest",
+    "AttendanceQrCheckInResponse",
     "VehicleCreateRequest",
     "VehicleUpdateRequest",
     "VehicleResponse",

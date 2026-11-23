@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.elements import WKTElement
@@ -31,10 +31,20 @@ from app.services.storage_service import (
     get_evidence_file_path,
     remove_evidence_file,
 )
+from app.core.rate_limit import RateLimiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["Illegal Dumping Reports"])
+
+# Maximum photo attachments allowed per incident report
+MAX_EVIDENCE_FILES_PER_REPORT = 5
+
+# Sliding-window rate limiters
+report_submit_rate_limiter = RateLimiter(max_requests=10, window_seconds=60, key_prefix="rep_submit")
+evidence_upload_rate_limiter = RateLimiter(max_requests=15, window_seconds=60, key_prefix="evi_upload")
+report_read_rate_limiter = RateLimiter(max_requests=60, window_seconds=60, key_prefix="rep_read")
+report_status_rate_limiter = RateLimiter(max_requests=30, window_seconds=60, key_prefix="rep_status")
 
 # Valid state machine transitions
 ALLOWED_STATUS_TRANSITIONS = {
@@ -62,6 +72,14 @@ ALLOWED_STATUS_TRANSITIONS = {
     status_code=status.HTTP_201_CREATED,
     summary="Submit Illegal Dumping Report",
     description="Allows authenticated citizens to report an illegal waste-dumping incident.",
+    dependencies=[Depends(report_submit_rate_limiter)],
+)
+@router.post(
+    "/dumping",
+    response_model=DumpingReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+    dependencies=[Depends(report_submit_rate_limiter)],
 )
 async def submit_report(
     payload: DumpingReportCreateRequest,
@@ -78,13 +96,24 @@ async def submit_report(
     - Coordinates are stored as WGS 84 Point geometries.
     - Initial history event is recorded for auditability.
     """
-    if payload.ward_id is not None:
-        ward = await db.get(Ward, payload.ward_id)
+    resolved_ward_id = payload.ward_id
+    if resolved_ward_id is not None:
+        ward = await db.get(Ward, resolved_ward_id)
         if not ward:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Ward '{payload.ward_id}' not found.",
+                detail=f"Ward '{resolved_ward_id}' not found.",
             )
+    else:
+        # Spatial containment: auto-assign to ward whose boundary contains the coordinates
+        stmt_geom = select(Ward.id).where(
+            Ward.boundary.isnot(None),
+            func.ST_Contains(Ward.boundary, func.ST_SetSRID(func.ST_Point(payload.longitude, payload.latitude), 4326)),
+        )
+        res_geom = await db.execute(stmt_geom)
+        matched_ward_id = res_geom.scalars().first()
+        if matched_ward_id:
+            resolved_ward_id = matched_ward_id
 
     location_geom = WKTElement(f"POINT({payload.longitude} {payload.latitude})", srid=4326)
     now_iso = utc_now().isoformat()
@@ -99,7 +128,7 @@ async def submit_report(
 
     report = DumpingReport(
         reporter_id=current_user.id,
-        ward_id=payload.ward_id,
+        ward_id=resolved_ward_id,
         location=location_geom,
         description=payload.description.strip(),
         status=DumpingReportStatus.SUBMITTED.value,
@@ -128,6 +157,14 @@ async def submit_report(
     status_code=status.HTTP_201_CREATED,
     summary="Upload Report Evidence Photo",
     description="Uploads photographic evidence (JPEG, PNG, WebP up to 5 MB) for an existing report.",
+    dependencies=[Depends(evidence_upload_rate_limiter)],
+)
+@router.post(
+    "/dumping/{report_id}/evidence",
+    response_model=ReportEvidenceResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+    dependencies=[Depends(evidence_upload_rate_limiter)],
 )
 async def upload_evidence(
     report_id: uuid.UUID,
@@ -142,6 +179,7 @@ async def upload_evidence(
     - Only the original reporter (CITIZEN) can upload evidence.
     - Rejects uploads if the report is already RESOLVED or REJECTED.
     - Files are validated by MIME type, file size limit (5MB), and binary magic bytes.
+    - Enforces maximum of 5 evidence photos per report to prevent file exhaustion.
     - Stores file under a server-generated UUID key on local filesystem storage.
     - Cleans up storage safely on any database commit failure.
     """
@@ -151,7 +189,7 @@ async def upload_evidence(
             detail="Only citizens can submit evidence for incident reports.",
         )
 
-    stmt = select(DumpingReport).where(DumpingReport.id == report_id)
+    stmt = select(DumpingReport).options(selectinload(DumpingReport.evidence)).where(DumpingReport.id == report_id)
     res = await db.execute(stmt)
     report = res.scalars().first()
 
@@ -171,6 +209,13 @@ async def upload_evidence(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot attach evidence to a resolved or rejected report.",
+        )
+
+    # Enforce maximum evidence attachments per report
+    if len(report.evidence or []) >= MAX_EVIDENCE_FILES_PER_REPORT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Maximum evidence limit reached ({MAX_EVIDENCE_FILES_PER_REPORT} photos per report).",
         )
 
     # Stream, validate magic bytes, enforce 5MB limit, and save with server UUID
@@ -206,6 +251,14 @@ async def upload_evidence(
     status_code=status.HTTP_200_OK,
     summary="List Citizen's Own Reports",
     description="Returns all illegal-dumping reports submitted by the authenticated citizen.",
+    dependencies=[Depends(report_read_rate_limiter)],
+)
+@router.get(
+    "/dumping/my",
+    response_model=List[DumpingReportResponse],
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+    dependencies=[Depends(report_read_rate_limiter)],
 )
 async def list_my_reports(
     current_user: User = Depends(require_roles(UserRole.CITIZEN)),
@@ -231,6 +284,14 @@ async def list_my_reports(
     status_code=status.HTTP_200_OK,
     summary="List Reports for Review",
     description="Retrieves incident reports. Municipal Admins have city-wide access; Ward Supervisors are restricted to their actively assigned wards.",
+    dependencies=[Depends(report_read_rate_limiter)],
+)
+@router.get(
+    "/dumping",
+    response_model=List[DumpingReportResponse],
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+    dependencies=[Depends(report_read_rate_limiter)],
 )
 async def list_reports(
     ward_id: Optional[uuid.UUID] = Query(default=None, description="Optional ward filter"),
@@ -291,6 +352,14 @@ async def list_reports(
     status_code=status.HTTP_200_OK,
     summary="Update Report Status & Review Notes",
     description="Updates the lifecycle status of a dumping report. Enforces valid state transitions and appends to the audit history.",
+    dependencies=[Depends(report_status_rate_limiter)],
+)
+@router.patch(
+    "/dumping/{report_id}/status",
+    response_model=DumpingReportResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+    dependencies=[Depends(report_status_rate_limiter)],
 )
 async def update_report_status(
     report_id: uuid.UUID,
@@ -377,9 +446,84 @@ async def update_report_status(
 
 
 @router.get(
+    "/{report_id}",
+    response_model=DumpingReportResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Illegal Dumping Report by ID",
+    description="Retrieves a specific illegal dumping report by ID. Citizens can view only their own reports; Ward Supervisors can view reports in actively assigned wards; Municipal Admins have city-wide access.",
+    dependencies=[Depends(report_read_rate_limiter)],
+)
+@router.get(
+    "/dumping/{report_id}",
+    response_model=DumpingReportResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+    dependencies=[Depends(report_read_rate_limiter)],
+)
+async def get_report(
+    report_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DumpingReportResponse:
+    """
+    Retrieves a single incident report with eager loading of attached evidence.
+
+    Authorization:
+    - CITIZEN: Granted only if they are the original reporter (report.reporter_id == current_user.id).
+    - MUNICIPAL_ADMIN: Granted city-wide.
+    - WARD_SUPERVISOR: Granted only if the report belongs to an actively assigned ward.
+    - Other roles (SANITATION_WORKER, DRIVER): Rejected with HTTP 403 Forbidden.
+    """
+    stmt = (
+        select(DumpingReport)
+        .options(selectinload(DumpingReport.evidence))
+        .where(DumpingReport.id == report_id)
+    )
+    res = await db.execute(stmt)
+    report = res.scalars().first()
+
+    if not report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Report '{report_id}' not found.",
+        )
+
+    if current_user.role == UserRole.CITIZEN.value:
+        if report.reporter_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this report.",
+            )
+    elif current_user.role == UserRole.MUNICIPAL_ADMIN.value:
+        pass
+    elif current_user.role == UserRole.WARD_SUPERVISOR.value:
+        if report.ward_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Supervisor cannot view reports that are not assigned to any ward.",
+            )
+        await verify_ward_access(current_user, report.ward_id, db)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to view dumping reports.",
+        )
+
+    return DumpingReportResponse.from_orm_model(report)
+
+
+@router.get(
     "/{report_id}/evidence/{evidence_id}",
     summary="Download/Stream Evidence Photo",
     description="Streams a private evidence image file. Strictly authenticated and authorization-scoped.",
+    dependencies=[Depends(report_read_rate_limiter)],
+)
+@router.get(
+    "/dumping/{report_id}/evidence/{evidence_id}",
+    summary="Download/Stream Evidence Photo",
+    description="Streams a private evidence image file. Strictly authenticated and authorization-scoped.",
+    include_in_schema=False,
+    dependencies=[Depends(report_read_rate_limiter)],
 )
 async def get_evidence_file(
     report_id: uuid.UUID,

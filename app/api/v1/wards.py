@@ -5,18 +5,58 @@ Exposes public-safe municipal boundaries and ward metadata.
 
 import uuid
 import logging
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.ward import Ward
-from app.schemas.ward import PublicWardResponse
+from app.schemas.ward import PublicWardResponse, WardSummaryResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Wards"])
+
+
+@router.get(
+    "/wards",
+    response_model=List[WardSummaryResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List Wards for Citizen Selection",
+    description="Returns a lightweight, public-safe list of available administrative wards with ID, name, and ward number for citizen onboarding and locality selection.",
+)
+async def list_wards(
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="Optional maximum number of wards to return.",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Optional number of records to skip for pagination.",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> List[WardSummaryResponse]:
+    """
+    Returns available wards with minimal fields: ID, name, and ward number.
+    - Completely public and unauthenticated.
+    - Strictly read-only; does not mutate any records.
+    - Omits internal administrative info, staff assignments, timestamps, and spatial boundaries.
+    - Ordered by ward_code ascending.
+    """
+    stmt = select(Ward).order_by(Ward.ward_code.asc())
+    if offset > 0:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    res = await db.execute(stmt)
+    wards = res.scalars().all()
+
+    return [WardSummaryResponse.from_orm_model(w) for w in wards]
 
 
 @router.get(

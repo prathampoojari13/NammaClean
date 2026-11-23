@@ -9,9 +9,17 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.api.v1.auth import register_rate_limiter
 from app.core.security import verify_password
 from app.models.enums import UserRole, UserStatus
 from app.models.user import User
+
+
+@pytest.fixture(autouse=True)
+def reset_register_rate_limit_state():
+    register_rate_limiter.reset()
+    yield
+    register_rate_limiter.reset()
 
 
 @pytest.mark.asyncio

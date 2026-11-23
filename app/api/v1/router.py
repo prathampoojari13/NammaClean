@@ -11,6 +11,8 @@ from app.api.v1 import (
     public_map,
     simulation,
     reports,
+    muster_points,
+    attendance,
 )
 
 api_router = APIRouter()
@@ -47,3 +49,9 @@ api_router.include_router(simulation.router)
 
 # Include illegal dumping reports and evidence routes
 api_router.include_router(reports.router)
+
+# Include muster point roll-call routes
+api_router.include_router(muster_points.router)
+
+# Include attendance and QR roll-call routes
+api_router.include_router(attendance.router)

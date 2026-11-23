@@ -25,10 +25,22 @@ share/python-wheels/
 .installed.cfg
 *.egg
 
-# Environment variables & secrets
+# Node.js & Frontend Build Outputs
+node_modules/
+*/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.tsbuildinfo
+*.tsbuildinfo
+.npm/
+
+# Environment Variables & Secrets (Keep .env.example strictly versioned)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
 # Testing & Coverage
 .pytest_cache/
@@ -37,25 +49,33 @@ htmlcov/
 .tox/
 .nox/
 
-# IDE & Editor files
+# IDE, Scratch & Workspace Files
 .vscode/
 .idea/
+.cursor/
+scratch/
 *.swp
 *.swo
 *~
+.edge*/
+frontend/.edge*/
 
-# Operating System files
+# Operating System Files
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# Local database dumps & SQLite (if any created locally)
+# Temporary Root Screenshots & Images
+/*.png
+!docs/assets/
+
+# Local Database Dumps & SQLite
 *.sqlite3
 *.db
 backups/
 *.dump
 
-# Local evidence and media uploads
+# Local Evidence and Media Uploads
 data/uploads/

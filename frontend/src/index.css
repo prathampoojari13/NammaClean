@@ -1,0 +1,1210 @@
+@import './styles/theme.css';
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-main);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+.nc-login-page {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100svh;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  margin: 0;
+  padding: clamp(1.25rem, 3vh, 2.5rem) clamp(1.25rem, 2.2vw, 2rem);
+  background: transparent;
+}
+
+.nc-auth-brand-panel {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  background: #B9D2E2;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.nc-auth-photo {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.nc-auth-photo img {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 50%;
+}
+
+.nc-auth-photo::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 38%, rgba(9, 39, 25, 0.12) 100%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 55%);
+  content: '';
+  pointer-events: none;
+}
+
+.nc-auth-photo-brand {
+  position: absolute;
+  z-index: 2;
+  top: clamp(2rem, 7.5vh, 5rem);
+  left: clamp(1.5rem, 6vw, 5.75rem);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #064A2B;
+  text-shadow: 0 1px 14px rgba(255, 255, 255, 0.5);
+}
+
+.nc-auth-logo-tile {
+  display: grid;
+  width: 76px;
+  height: 82px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.91);
+  box-shadow: 0 8px 25px rgba(22, 65, 40, 0.13);
+}
+
+.nc-auth-logo-tile img {
+  position: static;
+  width: 54px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.nc-auth-wordmark {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.nc-auth-wordmark strong {
+  font-size: clamp(2.15rem, 3.4vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.nc-auth-wordmark > span {
+  color: #173F2D;
+  font-size: clamp(0.84rem, 1.2vw, 1rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.nc-login-card,
+.nc-staff-access-content {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  width: clamp(440px, 43vw, 620px);
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #E1EAE2;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(19, 58, 35, 0.13), 0 3px 10px rgba(19, 58, 35, 0.04);
+}
+
+.nc-login-card {
+  padding: 2rem 1.9rem 0;
+}
+
+.nc-login-page-login .nc-login-card {
+  width: clamp(450px, 43vw, 620px);
+}
+
+.nc-staff-access-content {
+  width: clamp(500px, 47vw, 680px);
+  padding: 1.4rem;
+}
+
+.nc-login-card h1 {
+  color: #073F25;
+  font-size: clamp(2rem, 3.2vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.045em;
+}
+
+.nc-auth-eyebrow {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #14532D;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nc-auth-heading {
+  margin-bottom: 1.55rem;
+}
+
+.nc-login-heading {
+  text-align: center;
+}
+
+.nc-login-subtitle {
+  margin: 0.55rem 0 0;
+  color: #414A44;
+  font-size: 0.98rem;
+}
+
+.nc-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.nc-login-input-wrap {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0 1rem;
+  border: 1px solid #C8CDD2;
+  border-radius: 11px;
+  background: #fff;
+  color: #242B28;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.nc-login-input-wrap:focus-within {
+  border-color: #34794D;
+  box-shadow: 0 0 0 3px rgba(20, 83, 45, 0.12);
+}
+
+.nc-login-input-wrap > svg {
+  flex: 0 0 auto;
+  color: #28312C;
+}
+
+.nc-login-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #1F2937;
+  font-size: 1rem;
+}
+
+.nc-login-input-wrap input::placeholder {
+  color: #9299A1;
+  opacity: 1;
+}
+
+.nc-password-toggle {
+  display: grid;
+  width: 36px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #38423C;
+  cursor: pointer;
+}
+
+.nc-password-toggle:hover {
+  background: #F1F6F2;
+}
+
+.nc-password-toggle:focus-visible,
+.nc-register-cta:focus-visible,
+.nc-auth-staff-link a:focus-visible {
+  outline: 3px solid rgba(20, 83, 45, 0.28);
+  outline-offset: 3px;
+}
+
+.nc-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.nc-login-submit {
+  margin-top: 0.15rem;
+  box-shadow: 0 5px 12px rgba(20, 83, 45, 0.16);
+  font-size: 1.12rem !important;
+}
+
+.nc-login-submit:not(:disabled):hover {
+  filter: brightness(0.94);
+}
+
+.nc-login-submit:focus-visible {
+  outline: 3px solid rgba(20, 83, 45, 0.32);
+  outline-offset: 3px;
+}
+
+.nc-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.1rem 0;
+  color: #515A54;
+  font-size: 0.9rem;
+}
+
+.nc-auth-divider::before,
+.nc-auth-divider::after {
+  height: 1px;
+  flex: 1;
+  background: #D8DEDA;
+  content: '';
+}
+
+.nc-register-cta {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  border: 1px solid #CDE7D5;
+  border-radius: 11px;
+  background: #E2F3E8;
+  color: #173D29;
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.nc-register-cta:hover {
+  border-color: #B6DCC1;
+  background: #D7EFDE;
+  text-decoration: none;
+}
+
+.nc-register-cta svg {
+  color: #14532D;
+}
+
+.nc-auth-password-note {
+  margin: -0.05rem 0 0.35rem;
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+}
+
+.nc-auth-switch {
+  margin-top: 1rem;
+  color: var(--color-text-subtle);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.nc-auth-switch a {
+  color: #14532D;
+  font-weight: 700;
+}
+
+.nc-auth-staff-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  margin-top: 1.15rem;
+  color: #14532D;
+  font-size: 0.94rem;
+}
+
+.nc-auth-staff-link a {
+  color: #14532D;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.nc-audience-note {
+  margin-top: 1.25rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  background: #F0F7F1;
+  color: #3F5946;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.nc-audience-back-link {
+  margin-top: 0.9rem;
+}
+
+.nc-bmsit-credit {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 1.4rem -1.9rem 0;
+  padding: 0.95rem 1.9rem 1.05rem;
+  border-top: 1px solid #E5EDE6;
+  background: linear-gradient(110deg, #F5F9F6, #FBFDFC);
+}
+
+.nc-bmsit-credit img {
+  display: block;
+  flex: 0 0 auto;
+  width: 120px;
+  height: auto;
+}
+
+.nc-bmsit-credit-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 280px;
+  padding-left: 0.85rem;
+  border-left: 1px solid #AEB9B0;
+  color: #68756B;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.nc-bmsit-credit-copy span {
+  color: #526656;
+}
+
+.nc-bmsit-credit-copy small {
+  color: #7A857D;
+  font-size: 0.86em;
+  font-weight: 400;
+}
+
+.nc-app-layout-auth {
+  align-items: stretch;
+  justify-content: flex-start;
+  background:
+    radial-gradient(circle at 12% 15%, rgba(232,245,233,.95), transparent 30%),
+    linear-gradient(145deg, #F7FBF7 0%, #EDF7EF 100%);
+}
+
+@media (max-width: 760px) {
+  .nc-login-card,
+  .nc-staff-access-content {
+    padding: 1.6rem 1.5rem 0;
+  }
+}
+
+.nc-staff-access-content {
+  width: clamp(500px, 47vw, 680px);
+  padding-top: 1.4rem;
+  padding-bottom: 1.4rem;
+}
+
+.nc-staff-access-content > .nc-auth-heading {
+  max-width: 640px;
+}
+
+.nc-staff-access-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.nc-staff-access-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1.25rem;
+  border: 1px solid #DDE8DD;
+  border-radius: 12px;
+  background: #FBFDFC;
+}
+
+.nc-staff-access-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  margin-bottom: 0.85rem;
+  border-radius: 10px;
+  background: #E8F5E9;
+  color: #14532D;
+}
+
+.nc-staff-access-card h2 {
+  color: #173F28;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.nc-staff-access-card p {
+  flex: 1;
+  margin: 0.45rem 0 1rem;
+  color: #58675B;
+  font-size: 0.83rem;
+}
+
+.nc-staff-login-action {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid #14532D;
+  border-radius: 8px;
+  background: #14532D;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nc-staff-login-action:hover {
+  background: #104526;
+  text-decoration: none;
+}
+
+.nc-staff-provision-note {
+  margin-top: 1rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 8px;
+  background: #E8F5E9;
+  color: #31563A;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.nc-staff-access-content > .nc-auth-switch {
+  margin-bottom: 0;
+}
+
+@media (max-width: 600px) {
+  .nc-staff-access-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .nc-login-page {
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: clamp(180px, 24vh, 210px) 1rem 1.5rem;
+  }
+
+  .nc-auth-photo-brand {
+    top: 1.2rem;
+    left: 1rem;
+  }
+
+  .nc-auth-logo-tile {
+    width: 58px;
+    height: 64px;
+    border-radius: 12px;
+  }
+
+  .nc-auth-logo-tile img {
+    width: 43px;
+    height: 58px;
+  }
+
+  .nc-auth-wordmark strong {
+    font-size: clamp(1.9rem, 6vw, 2.4rem);
+  }
+
+  .nc-auth-wordmark > span {
+    font-size: 0.82rem;
+  }
+
+  .nc-login-card,
+  .nc-staff-access-content {
+    width: min(100%, 560px);
+    margin: 0 auto 1.25rem;
+    padding: 1.75rem 1.5rem 1.1rem;
+  }
+
+  .nc-login-page-login .nc-login-card {
+    width: min(100%, 560px);
+  }
+
+  .nc-staff-access-content {
+    width: min(100%, 760px);
+    padding-bottom: 1.4rem;
+  }
+
+  .nc-bmsit-credit {
+    margin: 1.4rem -1.5rem 0;
+    padding: 1rem 1.5rem 1.1rem;
+  }
+
+  .nc-bmsit-credit img {
+    width: 106px;
+  }
+
+  .nc-bmsit-credit-copy {
+    padding-left: 0.8rem;
+    font-size: 0.63rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .nc-login-page {
+    padding: clamp(180px, 24vh, 205px) 0.75rem 1.25rem;
+  }
+
+  .nc-auth-photo-brand {
+    top: 0.9rem;
+    left: 0.85rem;
+    gap: 0.7rem;
+  }
+
+  .nc-auth-logo-tile {
+    width: 48px;
+    height: 56px;
+  }
+
+  .nc-auth-logo-tile img {
+    width: 37px;
+    height: 51px;
+  }
+
+  .nc-auth-wordmark strong {
+    font-size: 1.75rem;
+  }
+
+  .nc-auth-wordmark > span {
+    font-size: 0.72rem;
+  }
+
+  .nc-login-card,
+  .nc-staff-access-content {
+    width: 100%;
+    margin: 0 auto 1rem;
+    padding: 1.5rem 1.1rem 0;
+    border-radius: 16px;
+  }
+
+  .nc-login-page-login .nc-login-card {
+    width: 100%;
+  }
+
+  .nc-login-card,
+  .nc-staff-access-content {
+    padding-bottom: 1rem;
+  }
+
+  .nc-login-card h1 {
+    font-size: 2rem;
+  }
+
+  .nc-login-subtitle {
+    font-size: 0.91rem;
+  }
+
+  .nc-login-form {
+    gap: 0.8rem;
+  }
+
+  .nc-login-input-wrap {
+    min-height: 54px;
+    gap: 0.7rem;
+    padding: 0 0.8rem;
+  }
+
+  .nc-login-input-wrap input {
+    min-height: 50px;
+    font-size: 0.94rem;
+  }
+
+  .nc-auth-staff-link {
+    gap: 0.45rem;
+    font-size: 0.82rem;
+  }
+
+  .nc-bmsit-credit {
+    gap: 0.65rem;
+    margin: 1.3rem -1.1rem 0;
+    padding: 0.9rem 1.1rem 1rem;
+  }
+
+  .nc-bmsit-credit img {
+    width: 88px;
+  }
+
+  .nc-bmsit-credit-copy {
+    padding-left: 0.65rem;
+    font-size: 0.58rem;
+  }
+}
+
+/* ==========================================================================
+   NammaClean Auth & Login Sequential Floating Entrance & Micro-Interactions
+   ========================================================================== */
+
+/* 1. Background Image: Smooth fade-in with subtle settling zoom */
+.nc-auth-photo img {
+  animation: nc-auth-bg-fade-zoom 1.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: center center;
+  will-change: transform, opacity;
+}
+
+@keyframes nc-auth-bg-fade-zoom {
+  0% {
+    opacity: 0;
+    transform: scale(1.045);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 2. NammaClean Logo Tile: Float gently into view from above, with subtle continuous float */
+.nc-auth-logo-tile {
+  animation:
+    nc-auth-logo-drop-in 0.72s cubic-bezier(0.2, 0.8, 0.2, 1) 0.18s both,
+    nc-auth-logo-ambient 5s ease-in-out 1.2s infinite alternate;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.24s ease;
+  will-change: transform, opacity;
+  cursor: pointer;
+}
+
+.nc-auth-logo-tile:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 14px 30px rgba(22, 65, 40, 0.22);
+}
+
+@keyframes nc-auth-logo-drop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nc-auth-logo-ambient {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-3px);
+  }
+}
+
+/* 3. Brand Name & Tagline: Upward floating entrance following logo */
+.nc-auth-wordmark strong {
+  animation: nc-auth-float-up 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.32s both;
+  will-change: transform, opacity;
+}
+
+.nc-auth-wordmark > span {
+  animation: nc-auth-float-up 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.42s both;
+  will-change: transform, opacity;
+}
+
+/* 4. Login / Auth Card: Smooth fade-in & upward settling */
+.nc-login-card,
+.nc-staff-access-content {
+  animation: nc-auth-card-rise 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
+  will-change: transform, opacity;
+}
+
+@keyframes nc-auth-card-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 5. Welcome Heading */
+.nc-login-card .nc-auth-heading h1,
+.nc-staff-access-content .nc-auth-heading h1 {
+  animation: nc-auth-float-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both;
+  will-change: transform, opacity;
+}
+
+.nc-auth-eyebrow {
+  animation: nc-auth-float-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.38s both;
+  will-change: transform, opacity;
+}
+
+/* 6. Supporting Subtitle */
+.nc-login-subtitle {
+  animation: nc-auth-float-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.55s both;
+  will-change: transform, opacity;
+}
+
+/* Alert notifications within the card */
+.nc-login-card .nc-alert,
+.nc-staff-access-content .nc-alert {
+  animation: nc-auth-float-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.58s both;
+}
+
+/* 7. Role Selection Cards (on /staff-access) with Staggered Delays & Elevation */
+.nc-staff-access-card {
+  animation: nc-auth-float-up 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.24s ease, border-color 0.24s ease;
+  will-change: transform, opacity;
+}
+
+.nc-staff-access-grid > .nc-staff-access-card:nth-of-type(1) {
+  animation-delay: 0.65s;
+}
+
+.nc-staff-access-grid > .nc-staff-access-card:nth-of-type(2) {
+  animation-delay: 0.77s;
+}
+
+.nc-staff-access-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 30px rgba(19, 58, 35, 0.11);
+  border-color: #34794D;
+}
+
+.nc-staff-access-icon {
+  transition: transform 0.22s ease, background-color 0.22s ease, color 0.22s ease;
+}
+
+.nc-staff-access-card:hover .nc-staff-access-icon {
+  transform: scale(1.08) translateY(-1px);
+  background: #DCF2DE;
+}
+
+.nc-staff-login-action {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.nc-staff-login-action:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(20, 83, 45, 0.2);
+}
+
+.nc-staff-login-action:active {
+  transform: translateY(0);
+}
+
+/* 8. Input Fields: Staggered Sequential Entrance */
+.nc-login-input-wrap {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  will-change: transform, opacity;
+}
+
+.nc-login-form .nc-login-input-wrap:nth-of-type(1) {
+  animation-delay: 0.65s;
+}
+
+.nc-login-form .nc-login-input-wrap:nth-of-type(2) {
+  animation-delay: 0.75s;
+}
+
+.nc-password-toggle {
+  transition: background-color 0.18s ease, transform 0.18s ease, color 0.18s ease;
+}
+
+.nc-password-toggle:hover {
+  transform: scale(1.08);
+  background: #E8F5E9;
+  color: #14532D;
+}
+
+/* Register page input fields & labels */
+.nc-register-page .nc-login-form input {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nc-register-page .nc-login-form input:focus {
+  border-color: #34794D;
+  box-shadow: 0 0 0 3px rgba(20, 83, 45, 0.12);
+}
+
+.nc-register-page .nc-login-form > label:nth-of-type(1),
+.nc-register-page .nc-login-form > input:nth-of-type(1) {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both;
+}
+
+.nc-register-page .nc-login-form > label:nth-of-type(2),
+.nc-register-page .nc-login-form > input:nth-of-type(2) {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.74s both;
+}
+
+.nc-register-page .nc-login-form > label:nth-of-type(3),
+.nc-register-page .nc-login-form > input:nth-of-type(3) {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.82s both;
+}
+
+.nc-register-page .nc-auth-password-note {
+  animation: nc-auth-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.88s both;
+}
+
+/* 9. Login & Registration Buttons: Smooth Hover Lift */
+.nc-login-submit,
+.nc-register-page .nc-login-form button[type="submit"] {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.86s both;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease, background-color 0.2s ease !important;
+  will-change: transform, opacity;
+}
+
+.nc-register-page .nc-login-form button[type="submit"] {
+  animation-delay: 0.94s;
+}
+
+.nc-login-submit:not(:disabled):hover,
+.nc-register-page .nc-login-form button[type="submit"]:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(20, 83, 45, 0.26);
+  filter: brightness(0.96);
+}
+
+.nc-login-submit:not(:disabled):active,
+.nc-register-page .nc-login-form button[type="submit"]:not(:disabled):active {
+  transform: translateY(0);
+  box-shadow: 0 3px 8px rgba(20, 83, 45, 0.16);
+}
+
+.nc-auth-divider {
+  animation: nc-auth-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.96s both;
+  will-change: transform, opacity;
+}
+
+.nc-register-cta {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 1.04s both;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+  will-change: transform, opacity;
+}
+
+.nc-register-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 7px 18px rgba(20, 83, 45, 0.11);
+  border-color: #B6DCC1;
+}
+
+.nc-register-cta:active {
+  transform: translateY(0);
+}
+
+/* 10. Secondary Links, Worker/Official Notes & Institutional Credits */
+/* Citizen Login: staff link */
+.nc-auth-staff-link:not(.nc-audience-back-link) {
+  animation: nc-auth-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1.12s both;
+  will-change: transform, opacity;
+}
+
+/* Worker & Official Login: note & back link */
+.nc-audience-note {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.98s both;
+  will-change: transform, opacity;
+}
+
+.nc-audience-back-link {
+  animation: nc-auth-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1.08s both;
+  will-change: transform, opacity;
+}
+
+/* Staff Access Page: note & back link */
+.nc-staff-provision-note {
+  animation: nc-auth-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.92s both;
+  will-change: transform, opacity;
+}
+
+.nc-auth-switch {
+  animation: nc-auth-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1.02s both;
+  will-change: transform, opacity;
+}
+
+/* BMSIT institutional credit footer */
+.nc-bmsit-credit {
+  animation: nc-auth-float-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) 1.18s both;
+  will-change: transform, opacity;
+}
+
+/* Shared upward float keyframe */
+@keyframes nc-auth-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==============================================================================
+   Universal Micro-Interactions
+   ============================================================================== */
+button:not(:disabled),
+.nc-btn:not(:disabled) {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+button:not(:disabled):hover,
+.nc-btn:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+
+button:not(:disabled):active,
+.nc-btn:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Shared Dashboard & Modal Keyframes */
+@keyframes nc-dash-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nc-dash-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nc-modal-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes nc-modal-scale-up {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ==============================================================================
+   Sanitation Worker Dashboard Animations
+   ============================================================================== */
+.nc-worker-header {
+  animation: nc-dash-fade-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+  will-change: transform, opacity;
+}
+
+.nc-worker-cards-grid > .nc-worker-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+  animation: nc-dash-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.nc-worker-cards-grid > .nc-worker-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-color: #CBD5E1;
+}
+
+.nc-worker-cards-grid > .nc-worker-card-attendance {
+  animation-delay: 0.18s;
+}
+
+.nc-worker-cards-grid > .nc-worker-card-assignment {
+  animation-delay: 0.28s;
+}
+
+.nc-worker-cards-grid > .nc-worker-card-tasks {
+  animation-delay: 0.38s;
+}
+
+.nc-worker-notice-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: nc-dash-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.48s both;
+  will-change: transform, opacity;
+}
+
+.nc-worker-notice-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.nc-worker-modal-backdrop {
+  animation: nc-modal-fade 0.25s ease-out both;
+}
+
+.nc-worker-modal-container {
+  animation: nc-modal-scale-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+/* ==============================================================================
+   Municipal Officer / Supervisor Dashboard Animations
+   ============================================================================== */
+.nc-supervisor-header {
+  animation: nc-dash-fade-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+  will-change: transform, opacity;
+}
+
+.nc-supervisor-cards-grid > .nc-supervisor-metric-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+  animation: nc-dash-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.nc-supervisor-cards-grid > .nc-supervisor-metric-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-color: #CBD5E1;
+}
+
+.nc-supervisor-cards-grid > .nc-supervisor-metric-card:nth-child(1) {
+  animation-delay: 0.16s;
+}
+
+.nc-supervisor-cards-grid > .nc-supervisor-metric-card:nth-child(2) {
+  animation-delay: 0.24s;
+}
+
+.nc-supervisor-cards-grid > .nc-supervisor-metric-card:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.nc-supervisor-cards-grid > .nc-supervisor-metric-card:nth-child(4) {
+  animation-delay: 0.40s;
+}
+
+.nc-supervisor-tabs {
+  animation: nc-dash-float-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.46s both;
+  will-change: transform, opacity;
+}
+
+.nc-supervisor-section {
+  animation: nc-dash-float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.52s both;
+  will-change: transform, opacity;
+}
+
+.nc-supervisor-modal-backdrop {
+  animation: nc-modal-fade 0.25s ease-out both;
+}
+
+.nc-supervisor-modal-container {
+  animation: nc-modal-scale-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+/* 11. Accessibility: prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .nc-auth-photo img,
+  .nc-auth-logo-tile,
+  .nc-auth-wordmark strong,
+  .nc-auth-wordmark > span,
+  .nc-login-card,
+  .nc-staff-access-content,
+  .nc-login-card .nc-auth-heading h1,
+  .nc-staff-access-content .nc-auth-heading h1,
+  .nc-auth-eyebrow,
+  .nc-login-subtitle,
+  .nc-login-card .nc-alert,
+  .nc-staff-access-content .nc-alert,
+  .nc-staff-access-card,
+  .nc-staff-access-icon,
+  .nc-login-input-wrap,
+  .nc-password-toggle,
+  .nc-register-page .nc-login-form > label,
+  .nc-register-page .nc-login-form > input,
+  .nc-register-page .nc-auth-password-note,
+  .nc-login-submit,
+  .nc-register-page .nc-login-form button[type="submit"],
+  .nc-auth-divider,
+  .nc-register-cta,
+  .nc-staff-login-action,
+  .nc-auth-staff-link,
+  .nc-audience-note,
+  .nc-audience-back-link,
+  .nc-staff-provision-note,
+  .nc-auth-switch,
+  .nc-bmsit-credit,
+  .nc-worker-header,
+  .nc-worker-cards-grid > .nc-worker-card,
+  .nc-worker-notice-card,
+  .nc-worker-modal-backdrop,
+  .nc-worker-modal-container,
+  .nc-supervisor-header,
+  .nc-supervisor-cards-grid > .nc-supervisor-metric-card,
+  .nc-supervisor-tabs,
+  .nc-supervisor-section,
+  .nc-supervisor-modal-backdrop,
+  .nc-supervisor-modal-container,
+  button,
+  .nc-btn {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+

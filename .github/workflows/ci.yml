@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        env:
+          APP_ENV: testing
+          JWT_SECRET_KEY: test_secret_key_for_github_actions_ci_32bytes
+          POSTGRES_PASSWORD: dummy_for_ci
+        run: |
+          python -m unittest tests/test_attendance_otp_dev.py tests/test_attendance_models.py -v
+
+  frontend-check:
+    name: Frontend Build & Contract Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: Install dependencies
+        run: npm --prefix frontend install
+
+      - name: Run frontend contract tests
+        run: npm --prefix frontend test
+
+      - name: Build frontend for production
+        run: npm --prefix frontend run build

@@ -8,16 +8,20 @@ import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import RateLimiter
+from app.models.ward import Ward
 from app.models.vehicle import Vehicle
 from app.models.collection_point import CollectionPoint
 from app.models.route import CollectionRoute, RouteStop
+from geoalchemy2.shape import to_shape
+from shapely.geometry import mapping
 from app.schemas.public_map import (
     PublicVehicleResponse,
     PublicCollectionPointResponse,
@@ -28,6 +32,9 @@ from app.schemas.public_map import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/map", tags=["Public Map"])
+
+# In-memory sliding-window rate limiter for public map queries
+public_map_rate_limiter = RateLimiter(max_requests=120, window_seconds=60, key_prefix="pub_map")
 
 
 @router.get(
@@ -41,6 +48,7 @@ async def get_public_vehicles(
     ward_id: Optional[uuid.UUID] = Query(default=None, description="Optional ward filter"),
     limit: int = Query(default=100, ge=1, le=500, description="Max records to return"),
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(public_map_rate_limiter),
 ) -> List[PublicVehicleResponse]:
     """
     Returns only vehicles explicitly approved for public display (`is_published == True`).
@@ -68,6 +76,45 @@ async def get_public_vehicles(
         )
         for v in vehicles
     ]
+
+
+@router.get(
+    "/vehicles/{vehicle_id}",
+    response_model=PublicVehicleResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Single Published Fleet Vehicle",
+    description="Returns public-safe vehicle location for an explicitly published vehicle. Stale location is redacted.",
+)
+async def get_public_vehicle(
+    vehicle_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(public_map_rate_limiter),
+) -> PublicVehicleResponse:
+    """
+    Returns public-safe vehicle location for a single published vehicle (`is_published == True`).
+    Omits registration numbers, driver IDs, and worker personal info.
+    If location telemetry is older than VEHICLE_FRESHNESS_MINUTES, coordinates are redacted.
+    """
+    stmt = (
+        select(Vehicle)
+        .where(
+            Vehicle.id == vehicle_id,
+            Vehicle.is_published.is_(True),
+            Vehicle.current_location.isnot(None),
+        )
+    )
+    res = await db.execute(stmt)
+    vehicle = res.scalars().first()
+    if vehicle is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Published vehicle with id '{vehicle_id}' not found.",
+        )
+
+    return PublicVehicleResponse.from_orm_model(
+        vehicle,
+        freshness_minutes=settings.VEHICLE_FRESHNESS_MINUTES,
+    )
 
 
 @router.get(
@@ -201,3 +248,46 @@ async def get_public_map_summary(
             "and demonstration purposes. No live BBMP GPS integration is established."
         ),
     )
+
+
+@router.get(
+    "/pilot-zone",
+    status_code=status.HTTP_200_OK,
+    summary="Get Pilot Operations Zone & City-Wide Map Config",
+    description="Returns public configuration for the active operational pilot (Yelahanka) and Bengaluru city-wide map view.",
+)
+async def get_pilot_zone(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns pilot zone metadata and boundary geometry for city-wide map highlighting.
+    Distinguishes Bengaluru city-wide context from active operational pilot boundaries.
+    """
+    stmt = select(Ward).where(Ward.ward_code == settings.PILOT_WARD_CODE)
+    res = await db.execute(stmt)
+    pilot_ward = res.scalars().first()
+
+    boundary_geojson = None
+    pilot_ward_id = None
+    if pilot_ward:
+        pilot_ward_id = str(pilot_ward.id)
+        if pilot_ward.boundary is not None:
+            boundary_geojson = mapping(to_shape(pilot_ward.boundary))
+
+    return {
+        "pilot_active": settings.PILOT_ACTIVE,
+        "pilot_zone_name": settings.PILOT_ZONE_NAME,
+        "pilot_ward_code": settings.PILOT_WARD_CODE,
+        "pilot_ward_name": settings.PILOT_WARD_NAME,
+        "pilot_ward_id": pilot_ward_id,
+        "pilot_center": [settings.PILOT_CENTER_LAT, settings.PILOT_CENTER_LON],
+        "pilot_geofence_meters": settings.PILOT_DEFAULT_GEOFENCE_METERS,
+        "bengaluru_center": [settings.BENGALURU_CENTER_LAT, settings.BENGALURU_CENTER_LON],
+        "bengaluru_zoom": settings.BENGALURU_DEFAULT_ZOOM,
+        "boundary_geojson": boundary_geojson,
+        "disclaimer": (
+            "NammaClean operational pilot active across Yelahanka & Avalahalli (including BMSIT&M campus corridor). "
+            "Approximate demonstration corridor boundary shown; official BBMP administrative ward boundaries maintained. "
+            "City-wide map context provided for Bengaluru."
+        ),
+    }

@@ -58,6 +58,39 @@ class UserRegisterRequest(BaseModel):
         return v
 
 
+class UserProfileUpdateRequest(BaseModel):
+    """
+    Schema for updating the authenticated user's own profile.
+    Allows updating locality, address, and selected ward.
+    Strictly forbids altering privileged attributes (id, email, role, status, password_hash)
+    via extra='forbid'.
+    """
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    ward_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="ID of the administrative ward selected by the user.",
+    )
+    locality: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Citizen's neighborhood, locality, or landmark name.",
+    )
+    address: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Citizen's residential street or house address.",
+    )
+    full_name: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Citizen's preferred display or full name.",
+    )
+
+
 class UserResponse(BaseModel):
     """
     Public representation of a user account.
@@ -69,6 +102,10 @@ class UserResponse(BaseModel):
     email: str
     role: str
     status: str
+    ward_id: Optional[uuid.UUID] = None
+    locality: Optional[str] = None
+    address: Optional[str] = None
+    full_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

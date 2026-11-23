@@ -70,4 +70,16 @@ class DumpingReportStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
+class AttendanceStatus(str, Enum):
+    """
+    Controlled lifecycle status for Pourakarmika daily attendance records.
+    Values are stored as strings constrained by database check constraints.
+    """
+    PRESENT = "PRESENT"
+    ABSENT = "ABSENT"
+    HALF_DAY = "HALF_DAY"
+    EXCEPTION_PENDING = "EXCEPTION_PENDING"
+    REJECTED = "REJECTED"
+
+
 

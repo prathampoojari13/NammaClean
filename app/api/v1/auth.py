@@ -16,12 +16,18 @@ from app.schemas.user import UserRegisterRequest, UserResponse
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.services.user_service import register_citizen, DuplicateEmailError
 
+from app.core.rate_limit import RateLimiter
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Constant dummy hash used to equalize execution timing and prevent user-enumeration attacks
 _DUMMY_ARGON2_HASH = hash_password("dummy_password_for_timing_mitigation_constant_time")
+
+# Rate limiters: 10 login attempts and 5 registration attempts per 60 seconds per client IP
+login_rate_limiter = RateLimiter(max_requests=10, window_seconds=60, key_prefix="auth_login")
+register_rate_limiter = RateLimiter(max_requests=5, window_seconds=60, key_prefix="auth_register")
 
 
 @router.post(
@@ -30,6 +36,7 @@ _DUMMY_ARGON2_HASH = hash_password("dummy_password_for_timing_mitigation_constan
     status_code=status.HTTP_201_CREATED,
     summary="Citizen Account Registration",
     description="Registers a new citizen account with email and password.",
+    dependencies=[Depends(register_rate_limiter)],
 )
 async def register_citizen_endpoint(
     payload: UserRegisterRequest,
@@ -74,6 +81,7 @@ async def register_citizen_endpoint(
     status_code=status.HTTP_200_OK,
     summary="User Authentication & Token Issuance",
     description="Authenticates active users and issues a signed HS256 JWT access token.",
+    dependencies=[Depends(login_rate_limiter)],
 )
 async def login_endpoint(
     payload: LoginRequest,

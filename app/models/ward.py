@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.collection_point import CollectionPoint
     from app.models.route import CollectionRoute
+    from app.models.attendance import MusterPoint, AttendanceRecord
 
 
 def utc_now() -> datetime:
@@ -80,6 +81,26 @@ class Ward(Base):
         back_populates="ward",
         cascade="all, delete-orphan",
     )
+    muster_points: Mapped[list["MusterPoint"]] = relationship(
+        "MusterPoint",
+        back_populates="ward",
+        cascade="all, delete-orphan",
+    )
+    attendance_records: Mapped[list["AttendanceRecord"]] = relationship(
+        "AttendanceRecord",
+        foreign_keys="AttendanceRecord.ward_id",
+        back_populates="ward",
+    )
+
+    @property
+    def name(self) -> str:
+        """Citizen-facing alias for display_name."""
+        return self.display_name
+
+    @property
+    def ward_number(self) -> str:
+        """Citizen-facing alias for ward_code."""
+        return self.ward_code
 
     def __repr__(self) -> str:
         return f"<Ward id={self.id} code={self.ward_code} name={self.display_name}>"

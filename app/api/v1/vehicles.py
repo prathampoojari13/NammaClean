@@ -4,6 +4,7 @@ Vehicle fleet management and GPS telemetry ingestion endpoints.
 
 import uuid
 import logging
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from geoalchemy2.elements import WKTElement
 
 from app.api.deps import get_current_user, require_roles, verify_ward_access
 from app.core.database import get_db
+from app.core.rate_limit import RateLimiter
 from app.models.enums import UserRole, UserStatus, VehicleStatus, VehicleType
 from app.models.user import User
 from app.models.ward import Ward, UserWardAssignment
@@ -29,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles & Telemetry"])
 
+# Sliding-window rate limiters
+telemetry_rate_limiter = RateLimiter(max_requests=60, window_seconds=60, key_prefix="veh_telemetry")
+fleet_rate_limiter = RateLimiter(max_requests=60, window_seconds=60, key_prefix="veh_fleet")
+
 
 @router.post(
     "",
@@ -43,6 +49,7 @@ async def create_vehicle(
         require_roles(UserRole.MUNICIPAL_ADMIN, UserRole.WARD_SUPERVISOR)
     ),
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(fleet_rate_limiter),
 ) -> VehicleResponse:
     """
     Registers a new vehicle in the fleet.
@@ -410,6 +417,7 @@ async def ingest_vehicle_position(
     payload: VehiclePositionCreateRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(telemetry_rate_limiter),
 ) -> VehiclePositionResponse:
     """
     Ingests a GPS telemetry update for a vehicle.
@@ -471,6 +479,7 @@ async def ingest_vehicle_position(
 
         # 1. Create historical position record
         position = VehiclePosition(
+            id=uuid.uuid4(),
             vehicle_id=vehicle.id,
             location=point_geom,
             speed_kmh=payload.speed_kmh,
@@ -509,3 +518,84 @@ async def ingest_vehicle_position(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while ingesting vehicle telemetry.",
         )
+
+
+@router.get(
+    "/{vehicle_id}/positions",
+    response_model=List[VehiclePositionResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get Vehicle Position Telemetry History",
+    description="Retrieves historical breadcrumb positions for a vehicle with pagination and date range filtering. Restricted to authorized municipal officials and the assigned driver.",
+)
+async def get_vehicle_positions(
+    vehicle_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500, description="Max historical positions to retrieve"),
+    start_time: Optional[datetime] = Query(default=None, description="Optional start datetime filter (UTC)"),
+    end_time: Optional[datetime] = Query(default=None, description="Optional end datetime filter (UTC)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(fleet_rate_limiter),
+) -> List[VehiclePositionResponse]:
+    """
+    Retrieves time-series GPS positions for a vehicle.
+
+    Security & Authorization:
+    - Drivers are strictly authorized ONLY for their currently assigned vehicle.
+    - Ward Supervisors are authorized ONLY for vehicles in wards they are actively assigned to.
+    - Municipal Admins have city-wide access across all vehicles.
+    - Citizens and other roles are rejected with HTTP 403 Forbidden.
+    - Unauthenticated requests receive HTTP 401 Unauthorized.
+
+    Filtering & Pagination:
+    - Results are ordered by recorded_at DESC.
+    - Optional start_time and end_time filters limit the query window.
+    - Limit is capped between 1 and 500 records.
+    """
+    stmt = select(Vehicle).where(Vehicle.id == vehicle_id)
+    result = await db.execute(stmt)
+    vehicle = result.scalars().first()
+    if vehicle is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Vehicle with id '{vehicle_id}' not found.",
+        )
+
+    # Authorization
+    if current_user.role == UserRole.DRIVER.value:
+        if vehicle.assigned_driver_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not authorized to view telemetry for this vehicle.",
+            )
+    elif current_user.role == UserRole.WARD_SUPERVISOR.value:
+        if vehicle.assigned_ward_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ward supervisors cannot access telemetry for an unassigned vehicle.",
+            )
+        await verify_ward_access(current_user, vehicle.assigned_ward_id, db)
+    elif current_user.role == UserRole.MUNICIPAL_ADMIN.value:
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions for this resource.",
+        )
+
+    pos_stmt = (
+        select(VehiclePosition)
+        .where(VehiclePosition.vehicle_id == vehicle_id)
+    )
+    if start_time is not None:
+        pos_stmt = pos_stmt.where(VehiclePosition.recorded_at >= start_time)
+    if end_time is not None:
+        pos_stmt = pos_stmt.where(VehiclePosition.recorded_at <= end_time)
+
+    resolved_limit = limit if isinstance(limit, int) else (getattr(limit, "default", 100) or 100)
+    pos_stmt = pos_stmt.order_by(VehiclePosition.recorded_at.desc()).limit(resolved_limit)
+
+    pos_res = await db.execute(pos_stmt)
+    positions = pos_res.scalars().all()
+
+    return [VehiclePositionResponse.from_orm_model(p) for p in positions]
+

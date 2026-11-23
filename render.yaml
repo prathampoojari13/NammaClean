@@ -1,0 +1,56 @@
+services:
+  # NammaClean FastAPI Backend Web Service
+  - type: web
+    name: nammaclean-backend
+    runtime: python
+    region: singapore
+    plan: free
+    branch: main
+    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/v1/health/live
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: API_V1_STR
+        value: /api/v1
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: BACKEND_CORS_ORIGINS
+        value: "https://nammaclean.vercel.app,https://nammaclean-frontend.onrender.com"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nammaclean-postgis
+          property: connectionString
+
+  # NammaClean Frontend Static Site (Optional alternative to Vercel)
+  - type: static
+    name: nammaclean-frontend
+    region: singapore
+    plan: free
+    branch: main
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://nammaclean-backend.onrender.com/api/v1
+
+databases:
+  # Managed PostgreSQL with PostGIS extension support
+  - name: nammaclean-postgis
+    plan: free
+    region: singapore
+    databaseName: nammaclean_db
+    user: nammaclean_admin
+    postgresMajorVersion: "16"

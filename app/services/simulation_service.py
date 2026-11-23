@@ -233,7 +233,7 @@ async def seed_demo_fleet(
         await db.flush()
 
     # 3. Check or create demo vehicle
-    demo_reg = f"SIM-{ward.ward_code[:8]}-01"
+    demo_reg = f"SIM-{ward.ward_code}-01"
     veh_stmt = select(Vehicle).where(Vehicle.registration_number == demo_reg)
     veh_res = await db.execute(veh_stmt)
     vehicle = veh_res.scalars().first()

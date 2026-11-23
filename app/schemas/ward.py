@@ -46,3 +46,28 @@ class PublicWardResponse(BaseModel):
             created_at=w.created_at,
             updated_at=w.updated_at,
         )
+
+
+class WardSummaryResponse(BaseModel):
+    """
+    Lightweight, public-safe summary of an administrative ward for citizen selection dropdowns.
+    Exposes only essential fields: ID, name, and ward number.
+    Strictly omits internal staff assignments, timestamps, and geospatial boundaries.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    ward_number: str
+
+    @classmethod
+    def from_orm_model(cls, w: Ward) -> "WardSummaryResponse":
+        """
+        Converts a Ward ORM entity into a compact citizen-selection summary.
+        Maps display_name -> name and ward_code -> ward_number.
+        """
+        return cls(
+            id=w.id,
+            name=w.display_name,
+            ward_number=w.ward_code,
+        )

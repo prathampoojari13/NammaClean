@@ -17,6 +17,7 @@ from app.models.enums import UserRole, UserStatus
 
 if TYPE_CHECKING:
     from app.models.ward import Ward, UserWardAssignment
+    from app.models.attendance import AttendanceRecord
 
 
 def utc_now() -> datetime:
@@ -68,6 +69,24 @@ class User(Base):
         default=UserStatus.ACTIVE.value,
         index=True,
     )
+    ward_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("wards.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    locality: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    address: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    full_name: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -81,10 +100,24 @@ class User(Base):
     )
 
     # Relationships
+    ward: Mapped[Optional["Ward"]] = relationship(
+        "Ward",
+        foreign_keys=[ward_id],
+    )
     ward_assignments: Mapped[list["UserWardAssignment"]] = relationship(
         "UserWardAssignment",
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    attendance_records: Mapped[list["AttendanceRecord"]] = relationship(
+        "AttendanceRecord",
+        foreign_keys="AttendanceRecord.worker_id",
+        back_populates="worker",
+    )
+    reviewed_attendances: Mapped[list["AttendanceRecord"]] = relationship(
+        "AttendanceRecord",
+        foreign_keys="AttendanceRecord.reviewed_by",
+        back_populates="reviewer",
     )
 
     __table_args__ = (

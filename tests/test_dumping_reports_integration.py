@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from geoalchemy2.shape import to_shape
 
 from app.main import app
+from app.api.v1.reports import report_submit_rate_limiter
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password
@@ -46,6 +47,13 @@ TEST_ASYNC_DB_URL = (
     f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
     f"@{TEST_DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_report_submit_rate_limit_state():
+    report_submit_rate_limiter.reset()
+    yield
+    report_submit_rate_limiter.reset()
 
 
 def _assert_connection_guard_parameters():
@@ -84,10 +92,10 @@ async def test_db_engine():
         # Confirm Alembic revision
         rev_res = await conn.execute(text("SELECT version_num FROM alembic_version;"))
         actual_rev = rev_res.scalar_one_or_none()
-        if actual_rev != "e5a19cb28df4":
+        if actual_rev != "b7e4d2c9f1a8":
             await engine.dispose()
             raise RuntimeError(
-                f"FATAL: Database guard failed! Expected revision 'e5a19cb28df4', found '{actual_rev}'. Aborting."
+                f"FATAL: Database guard failed! Expected revision 'b7e4d2c9f1a8', found '{actual_rev}'. Aborting."
             )
 
         # Confirm PostGIS extension
@@ -719,6 +727,7 @@ async def test_integration_evidence_upload_rejections(
         json={"latitude": 12.96, "longitude": 77.66, "description": "Report for rejection testing.", "ward_id": str(ward.id)},
         headers={"Authorization": f"Bearer {token_a}"},
     )
+    assert r.status_code == 201, f"Report submission failed: {r.status_code} {r.text}"
     report_id = uuid.UUID(r.json()["id"])
     tracker.report_ids.append(report_id)
 
@@ -794,6 +803,7 @@ async def test_integration_evidence_download_permissions(
         json={"latitude": 12.98, "longitude": 77.68, "description": "Report for download testing.", "ward_id": str(ward.id)},
         headers={"Authorization": f"Bearer {token_a}"},
     )
+    assert r.status_code == 201, f"Report submission failed: {r.status_code} {r.text}"
     report_id = uuid.UUID(r.json()["id"])
     tracker.report_ids.append(report_id)
 

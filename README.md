@@ -6,104 +6,158 @@ Designed to connect citizens, sanitation workers (*Pourakarmikas*), ward supervi
 
 ---
 
-## Architecture & Technology Stack
+## 🏛️ Architecture & Technology Stack
 
-- **Runtime**: Python 3.12.10
-- **Framework**: FastAPI (Asynchronous ASGI)
-- **Database**: PostgreSQL 16 + PostGIS 3.4 (Geospatial extension) via Docker Compose
-- **ORM / Migrations**: SQLAlchemy 2.x (Async) + Alembic (Sync)
-- **Validation & Settings**: Pydantic v2 & Pydantic-Settings
-- **Testing**: Pytest & pytest-asyncio with HTTPX
+### Frontend
+- **Framework**: React 18 with TypeScript and Vite
+- **Routing**: React Router DOM v6 with SPA client-side routing & deep-link fallbacks
+- **Maps**: Leaflet & OpenStreetMap / CartoDB / Esri Satellite imagery
+- **Styling & UI**: Tailwind-inspired responsive CSS with Lucide React iconography
+- **State & Storage**: Resilient localStorage token recovery and live role-based route protection
 
-### Dedicated Port Allocation
-To avoid collisions with other existing PostgreSQL instances (such as MigrationGuard on port 5432), NammaClean uses a dedicated host port:
-
-| Service | Host Port | Container Port | Service / Database |
-| :--- | :--- | :--- | :--- |
-| **NammaClean PostGIS** | `5433` | `5432` | `nammaclean_db` |
-| **NammaClean FastAPI** | `8000` | N/A (Host) | ASGI Application |
+### Backend
+- **Runtime**: Python 3.12 (ASGI)
+- **Framework**: FastAPI with asynchronous endpoints
+- **Database**: PostgreSQL 16 with PostGIS 3.4 (Geospatial extension)
+- **ORM & Migrations**: SQLAlchemy 2.x (Asyncpg) + Alembic (Psycopg2)
+- **Security**: Argon2 password hashing (pwdlib), JWT authentication, strict role-based authorization
+- **Testing**: Pytest & Python standard unittest suites (380+ tests)
 
 ---
 
-## Quickstart Guide
+## 🚀 Quickstart Guide (Local Development)
 
 ### 1. Prerequisites
-- Python 3.12 (`py -3.12`)
-- Docker Desktop running
+- Python 3.12+
+- Node.js 20+ and npm
+- Docker Desktop (for local PostgreSQL + PostGIS)
 
-### 2. Start the PostGIS Database
-Start the isolated PostgreSQL + PostGIS container:
+### 2. Start Database
 ```powershell
 docker compose up -d
 ```
-Verify container status:
-```powershell
-docker ps
-```
-The container `nammaclean_postgis` should show as `Up` and `(healthy)` on port `5433->5432`.
+Container `nammaclean_postgis` binds to port `5433` (mapped to container port `5432`) to avoid port collisions.
 
-### 3. Environment Setup
-The project includes a pre-configured `.env.example`.
-If setting up on a new machine:
+### 3. Setup Backend
 ```powershell
+# Copy environment configuration
 Copy-Item .env.example .env
-```
-Activate the virtual environment:
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
 
-### 4. Running the Development Server
-Launch FastAPI with hot-reloading:
-```powershell
+# Install backend dependencies
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# Run migrations
+.\.venv\Scripts\python.exe -m alembic upgrade head
+
+# Run development server
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
-Then visit:
-- **Root Welcome**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
-- **Interactive Swagger Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- **Health Check & DB Ping**: [http://127.0.0.1:8000/api/v1/health](http://127.0.0.1:8000/api/v1/health)
 
-### 5. Running Automated Tests
-Run tests using Python 3.12:
+### 4. Setup Frontend
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -v
+cd frontend
+npm install
+npm run dev
+```
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+---
+
+## 🌐 Production Deployment
+
+### Recommended Architecture
+1. **Frontend**: [Vercel](https://vercel.com) or [Netlify](https://netlify.com)
+2. **Backend**: [Render](https://render.com) or [Railway](https://railway.app)
+3. **Database**: Managed PostgreSQL with PostGIS (e.g. Render PostGIS, Supabase, Neon, or Railway)
+
+### 1. Deploying the Backend on Render
+The repository includes a ready-to-use `render.yaml` blueprint:
+1. Log in to [Render](https://dashboard.render.com).
+2. Click **New +** > **Blueprint**.
+3. Connect your GitHub repository (`prathampoojari13/NammaClean`).
+4. Render automatically configures:
+   - Python Web Service running `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - Pre-deploy command: `pip install -r requirements.txt && alembic upgrade head`
+   - Health check: `/api/v1/health/live`
+   - PostGIS-enabled PostgreSQL database instance
+5. Add your production frontend URL to `BACKEND_CORS_ORIGINS`.
+
+### 2. Deploying the Frontend on Vercel
+1. Log in to [Vercel](https://vercel.com).
+2. Click **Add New Project** and select your GitHub repository.
+3. Configure the build settings:
+   - **Framework Preset**: Vite
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+4. Set Environment Variables:
+   - `VITE_API_BASE_URL`: `https://<your-backend-domain>/api/v1`
+5. Click **Deploy**. SPA routing and deep links work automatically via `frontend/vercel.json` and `frontend/public/_redirects`.
+
+---
+
+## ⚙️ Environment Variables Reference
+
+### Backend (`.env`)
+| Variable | Description | Default / Example |
+| :--- | :--- | :--- |
+| `APP_NAME` | Name of the platform | `NammaClean` |
+| `APP_ENV` | Environment (`development`, `production`, `testing`) | `development` |
+| `APP_DEBUG` | Enable debug logs | `true` in dev, `false` in prod |
+| `API_V1_STR` | API prefix | `/api/v1` |
+| `BACKEND_CORS_ORIGINS` | Allowed frontend origins (comma-separated or JSON list) | `["http://localhost:5173","https://nammaclean.vercel.app"]` |
+| `DATABASE_URL` | Cloud database URL (overrides discrete POSTGRES_* settings) | `postgresql://user:pass@host:5432/nammaclean_db` |
+| `POSTGRES_HOST` | Database host (local Docker) | `localhost` |
+| `POSTGRES_PORT` | Database port (local Docker) | `5433` |
+| `POSTGRES_DB` | Database name | `nammaclean_db` |
+| `POSTGRES_USER` | Database username | `nammaclean_admin` |
+| `POSTGRES_PASSWORD` | Database password | Secure secret |
+| `JWT_SECRET_KEY` | Secret key for signing JWT tokens | 32+ byte random string |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token validity duration | `30` |
+| `SIMULATION_ENABLED` | Simulated vehicle movement | `false` |
+| `EVIDENCE_STORAGE_PATH` | Local file uploads directory | `data/uploads/evidence` |
+
+### Frontend (`frontend/.env`)
+| Variable | Description | Default / Example |
+| :--- | :--- | :--- |
+| `VITE_API_BASE_URL` | Base URL of the FastAPI backend | `http://localhost:8000/api/v1` (dev), `https://api.yourdomain.com/api/v1` (prod) |
+
+---
+
+## 🧪 Automated Testing & CI/CD
+
+Continuous Integration is configured via GitHub Actions (`.github/workflows/ci.yml`). On every push to `main` and pull request:
+- **Backend Tests**: Executes Python test suite.
+- **Frontend Tests**: Executes Leaflet, authentication, and contract tests (`npm test`).
+- **Production Build Check**: Compiles TypeScript and builds Vite bundle (`npm run build`).
+
+To run tests locally:
+```powershell
+# Frontend contract tests (40 contracts)
+npm --prefix frontend test
+
+# Frontend production build
+npm --prefix frontend run build
+
+# Backend tests
+.\.venv\Scripts\python.exe -m unittest tests/test_attendance_otp_dev.py tests/test_attendance_models.py -v
 ```
 
 ---
 
-## Project Structure
+## ⚠️ Operational & Pilot Scope Disclaimers
 
-```text
-NammaClean/
-├── .env.example             # Safe environment variable template (untracked: .env)
-├── .gitignore               # Excludes .venv, .env, __pycache__, and caches
-├── docker-compose.yml       # PostGIS 16-3.4 container configuration on port 5433
-├── requirements.txt         # Pinned Python 3.12 dependencies
-├── pytest.ini               # Pytest asyncio configuration
-├── alembic.ini              # Alembic database migration config
-├── alembic/                 # Database migration versions and environments
-├── app/
-│   ├── main.py              # FastAPI application entrypoint & lifespan
-│   ├── core/
-│   │   ├── config.py        # Pydantic BaseSettings loading from .env
-│   │   └── database.py      # Async SQLAlchemy engine & PostGIS connection check
-│   └── api/
-│       └── v1/
-│           ├── router.py    # V1 API router aggregator
-│           └── health.py    # GET /api/v1/health with DB & PostGIS ping
-└── tests/
-    ├── conftest.py          # Pytest async client fixtures
-    └── test_health.py       # API and database connectivity tests
-```
+1. **BMSIT&M / Yelahanka Pilot Scope**:
+   Live spatial modeling and automated muster points are calibrated for the Yelahanka – Avalahalli corridor (Ward 4, BMSIT&M campus perimeter). City-wide expansion utilizes OpenStreetMap bounding extents for Bengaluru.
+2. **Simulated Telemetry**:
+   BBMP collection vehicle telemetry and route sweeps reflect simulated GPS feeds designed to match BBMP operational specifications.
+3. **Development OTP Delivery**:
+   Sanitation worker roll-call OTP verification is configured in development mode with local verification cards. Production deployments can connect directly to an external SMS/SMTP gateway.
 
 ---
 
-## Verifiable Milestones
+## 📷 Media & Asset Attributions
 
-- [x] **Stage 1**: Foundation & Infrastructure (FastAPI, PostGIS container on port 5433, async engine, health endpoint, automated tests).
-- [ ] **Stage 2**: Role-Based Access Control (RBAC) & Authentication (Citizens, Pourakarmikas, Ward Supervisors, BBMP Admins).
-- [ ] **Stage 3**: Spatial Modeling of Bengaluru Wards & Collection Points (GeoJSON boundaries, PostGIS geometries).
-- [ ] **Stage 4**: Vehicle Fleet & Daily Worker Shifts.
-- [ ] **Stage 5**: Live Vehicle Telemetry Ingestion & Citizen Proximity Alerts.
-- [ ] **Stage 6**: Evidence-Based Collection Auditing & Blackspot Reporting.
-- [ ] **Stage 7**: Operational Dashboards, Delay Alerts & Research Evaluation Metrics.
+The Vidhana Soudha (Bengaluru) photograph used for the citizen dashboard banner and authentication backdrop is by iMahesh and is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+- Source: [Vidhana Soudha (Bengaluru) - Panoramic view](https://commons.wikimedia.org/wiki/File:Vidhana_Soudha_(Bengaluru)_-_Panoramic_view.jpg)
+- Assets: `frontend/public/assets/vidhana-soudha-bengaluru.jpg` and `frontend/public/assets/vidhana-soudha-login.jpg`

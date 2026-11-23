@@ -20,13 +20,20 @@ from fastapi import HTTPException, UploadFile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.enums import UserRole, DumpingReportStatus
+from app.models.dumping_report import DumpingReport, ReportEvidence, utc_now
 from app.schemas.dumping_report import (
     DumpingReportCreateRequest,
     DumpingReportStatusUpdateRequest,
     ReportEvidenceResponse,
     DumpingReportResponse,
 )
-from app.api.v1.reports import ALLOWED_STATUS_TRANSITIONS
+from app.api.v1.reports import (
+    ALLOWED_STATUS_TRANSITIONS,
+    get_report,
+    upload_evidence,
+    update_report_status,
+    MAX_EVIDENCE_FILES_PER_REPORT,
+)
 from app.services.storage_service import (
     validate_image_magic_bytes,
     store_evidence_file,
@@ -672,5 +679,203 @@ async def test_upload_evidence_cleans_up_file_on_database_failure(tmp_path):
             )
         assert exc_info.value.status_code == 500
         mock_remove.assert_called_once_with("deadbeef.jpg")
+
+
+@pytest.mark.asyncio
+async def test_upload_evidence_exceeds_max_files_limit():
+    """Uploading more than MAX_EVIDENCE_FILES_PER_REPORT (5) photos is rejected with HTTP 400."""
+    owner_id = uuid.uuid4()
+    owner_user = User(id=owner_id, role=UserRole.CITIZEN.value, status="ACTIVE")
+
+    existing_evidence = [
+        ReportEvidence(
+            id=uuid.uuid4(),
+            report_id=uuid.uuid4(),
+            file_name=f"photo_{i}.jpg",
+            storage_key=f"key_{i}.jpg",
+            file_size_bytes=1024,
+            content_type="image/jpeg",
+        )
+        for i in range(5)
+    ]
+
+    report = DumpingReport(
+        id=uuid.uuid4(),
+        reporter_id=owner_id,
+        ward_id=uuid.uuid4(),
+        description="Dump report.",
+        status=DumpingReportStatus.SUBMITTED.value,
+    )
+    report.evidence = existing_evidence
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=report))))
+    )
+    mock_request = MagicMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await upload_evidence(
+            report_id=report.id,
+            request=mock_request,
+            current_user=owner_user,
+            db=mock_db,
+        )
+    assert exc_info.value.status_code == 400
+    assert "Maximum evidence limit reached" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_report_by_id_owner_citizen_success():
+    """Owner citizen can retrieve their own report."""
+    owner_id = uuid.uuid4()
+    owner_user = User(id=owner_id, role=UserRole.CITIZEN.value, status="ACTIVE")
+
+    from geoalchemy2.elements import WKTElement
+    report = DumpingReport(
+        id=uuid.uuid4(),
+        reporter_id=owner_id,
+        ward_id=uuid.uuid4(),
+        location=WKTElement("POINT(77.5946 12.9716)", srid=4326),
+        description="Piles of plastic waste.",
+        status=DumpingReportStatus.SUBMITTED.value,
+        status_history=[],
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+    report.evidence = []
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=report))))
+    )
+
+    result = await get_report(report_id=report.id, current_user=owner_user, db=mock_db)
+    assert result.id == report.id
+    assert result.reporter_id == owner_id
+    assert result.description == "Piles of plastic waste."
+
+
+@pytest.mark.asyncio
+async def test_get_report_by_id_other_citizen_denied():
+    """Non-owner citizen cannot retrieve another citizen's report (HTTP 403)."""
+    owner_id = uuid.uuid4()
+    other_citizen = User(id=uuid.uuid4(), role=UserRole.CITIZEN.value, status="ACTIVE")
+
+    report = DumpingReport(
+        id=uuid.uuid4(),
+        reporter_id=owner_id,
+        ward_id=uuid.uuid4(),
+        description="Piles of plastic waste.",
+        status=DumpingReportStatus.SUBMITTED.value,
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=report))))
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_report(report_id=report.id, current_user=other_citizen, db=mock_db)
+    assert exc_info.value.status_code == 403
+    assert "Access denied to this report" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_report_by_id_supervisor_assigned_ward_success():
+    """Supervisor assigned to the report's ward can retrieve the report."""
+    supervisor_id = uuid.uuid4()
+    ward_id = uuid.uuid4()
+    supervisor_user = User(id=supervisor_id, role=UserRole.WARD_SUPERVISOR.value, status="ACTIVE")
+
+    from geoalchemy2.elements import WKTElement
+    report = DumpingReport(
+        id=uuid.uuid4(),
+        reporter_id=uuid.uuid4(),
+        ward_id=ward_id,
+        location=WKTElement("POINT(77.5946 12.9716)", srid=4326),
+        description="Dump report.",
+        status=DumpingReportStatus.SUBMITTED.value,
+        status_history=[],
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+    report.evidence = []
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=report))))
+    )
+
+    with patch("app.api.v1.reports.verify_ward_access", new=AsyncMock(return_value=None)):
+        result = await get_report(report_id=report.id, current_user=supervisor_user, db=mock_db)
+    assert result.id == report.id
+
+
+@pytest.mark.asyncio
+async def test_get_report_by_id_supervisor_unassigned_ward_denied():
+    """Supervisor viewing a report without ward assignment is rejected with HTTP 403."""
+    supervisor_user = User(id=uuid.uuid4(), role=UserRole.WARD_SUPERVISOR.value, status="ACTIVE")
+
+    report = DumpingReport(
+        id=uuid.uuid4(),
+        reporter_id=uuid.uuid4(),
+        ward_id=None,  # No ward assigned
+        description="Unassigned ward report.",
+        status=DumpingReportStatus.SUBMITTED.value,
+    )
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=report))))
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_report(report_id=report.id, current_user=supervisor_user, db=mock_db)
+    assert exc_info.value.status_code == 403
+    assert "not assigned to any ward" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_report_by_id_not_found():
+    """Nonexistent report returns HTTP 404."""
+    user = User(id=uuid.uuid4(), role=UserRole.CITIZEN.value, status="ACTIVE")
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=None))))
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_report(report_id=uuid.uuid4(), current_user=user, db=mock_db)
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_report_by_id_unauthorized_role_denied():
+    """Worker or driver cannot view dumping reports (HTTP 403)."""
+    worker_user = User(id=uuid.uuid4(), role=UserRole.SANITATION_WORKER.value, status="ACTIVE")
+
+    report = DumpingReport(
+        id=uuid.uuid4(),
+        reporter_id=uuid.uuid4(),
+        ward_id=uuid.uuid4(),
+        description="Dump report.",
+        status=DumpingReportStatus.SUBMITTED.value,
+    )
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=report))))
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_report(report_id=report.id, current_user=worker_user, db=mock_db)
+    assert exc_info.value.status_code == 403
+    assert "Insufficient permissions" in exc_info.value.detail
+
 
 
