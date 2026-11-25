@@ -54,7 +54,11 @@ async def check_database_connection() -> Dict[str, Any]:
             await conn.execute(text("SELECT 1"))
             latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-            # 2. Query pg_extension system catalog safely without throwing if absent
+            # 2. Query actual database name from active connection
+            db_res = await conn.execute(text("SELECT current_database()"))
+            actual_db = db_res.scalar() or (engine.url.database or settings.POSTGRES_DB)
+
+            # 3. Query pg_extension system catalog safely without throwing if absent
             ext_result = await conn.execute(
                 text("SELECT extversion FROM pg_extension WHERE extname = 'postgis'")
             )
@@ -65,9 +69,9 @@ async def check_database_connection() -> Dict[str, Any]:
             return {
                 "connected": True,
                 "latency_ms": latency_ms,
-                "database": settings.POSTGRES_DB,
-                "host": settings.POSTGRES_HOST,
-                "port": settings.POSTGRES_PORT,
+                "database": actual_db,
+                "host": engine.url.host or settings.POSTGRES_HOST,
+                "port": engine.url.port or settings.POSTGRES_PORT,
                 "postgis_installed": postgis_installed,
                 "postgis_version": postgis_version,
             }
@@ -76,9 +80,9 @@ async def check_database_connection() -> Dict[str, Any]:
         return {
             "connected": False,
             "latency_ms": latency_ms,
-            "database": settings.POSTGRES_DB,
-            "host": settings.POSTGRES_HOST,
-            "port": settings.POSTGRES_PORT,
+            "database": engine.url.database or settings.POSTGRES_DB,
+            "host": engine.url.host or settings.POSTGRES_HOST,
+            "port": engine.url.port or settings.POSTGRES_PORT,
             "postgis_installed": False,
             "postgis_version": None,
             "error": str(exc),
