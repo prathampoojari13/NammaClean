@@ -6,7 +6,8 @@ services:
     region: singapore
     plan: free
     branch: main
-    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    buildCommand: "pip install -r requirements.txt"
+    preDeployCommand: "python scripts/pre_deploy.py"
     startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /api/v1/health/live
     envVars:
@@ -23,15 +24,16 @@ services:
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "60"
       - key: BACKEND_CORS_ORIGINS
-        value: "https://nammaclean.vercel.app,https://nammaclean-frontend.onrender.com"
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: nammaclean-postgis
           property: connectionString
 
-  # NammaClean Frontend Static Site (Optional alternative to Vercel)
-  - type: static
+  # NammaClean Frontend Static Site (can also be deployed separately on Vercel)
+  - type: web
     name: nammaclean-frontend
+    runtime: static
     region: singapore
     plan: free
     branch: main
@@ -44,10 +46,10 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://nammaclean-backend.onrender.com/api/v1
+        sync: false
 
 databases:
-  # Managed PostgreSQL with PostGIS extension support
+  # Managed PostgreSQL for NammaClean (PostGIS extension enabled via scripts/pre_deploy.py)
   - name: nammaclean-postgis
     plan: free
     region: singapore
