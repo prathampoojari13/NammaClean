@@ -76,22 +76,6 @@ async def check_database_connection() -> Dict[str, Any]:
             except Exception:
                 pass
 
-            # 5. Diagnostic column inspection and model select probe
-            user_columns = []
-            user_query_error = None
-            try:
-                cols_res = await conn.execute(
-                    text("SELECT column_name FROM information_schema.columns WHERE table_name = 'users' ORDER BY ordinal_position")
-                )
-                user_columns = [r[0] for r in cols_res.fetchall()]
-
-                from sqlalchemy import select
-                from app.models.user import User
-                test_stmt = select(User).limit(1)
-                await conn.execute(test_stmt)
-            except Exception as e:
-                user_query_error = f"{type(e).__name__}: {str(e)}"
-
             return {
                 "connected": True,
                 "latency_ms": latency_ms,
@@ -101,8 +85,6 @@ async def check_database_connection() -> Dict[str, Any]:
                 "postgis_installed": postgis_installed,
                 "postgis_version": postgis_version,
                 "migration_revision": migration_revision,
-                "user_columns": user_columns,
-                "user_query_error": user_query_error,
             }
     except Exception as exc:
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
