@@ -48,6 +48,7 @@ def run_pre_deploy() -> None:
     try:
         alembic_ini_path = str(PROJECT_ROOT / "alembic.ini")
         alembic_cfg = Config(alembic_ini_path)
+        alembic_cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
         alembic_cfg.set_main_option("sqlalchemy.url", db_url)
         command.upgrade(alembic_cfg, "head")
         logger.info("Database migrations completed successfully.")

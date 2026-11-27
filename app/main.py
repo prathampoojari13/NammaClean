@@ -9,14 +9,48 @@ from app.core.config import settings
 from app.api.v1.router import api_router
 
 
+_migrations_applied = False
+
+
+def ensure_migrations_applied() -> None:
+    """
+    Executes database pre-deployment checks and migrations to head exactly once per process.
+    Ensures that PostGIS extension is enabled and Alembic migrations are applied
+    automatically on startup across all deployment environments (including Render free tier).
+    """
+    global _migrations_applied
+    if _migrations_applied:
+        return
+
+    import logging
+    app_logger = logging.getLogger("app.main")
+
+    try:
+        from scripts.pre_deploy import run_pre_deploy
+        run_pre_deploy()
+        _migrations_applied = True
+        app_logger.info("Startup database migration check completed successfully.")
+    except Exception as exc:
+        app_logger.warning(
+            "Startup database migration check encountered an error: %s",
+            exc,
+        )
+        if settings.APP_ENV == "production":
+            raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan events for startup and shutdown.
     Cleanly handles initialization before taking traffic and cleanup on shutdown.
     """
-    # Startup logic
+    # Startup logic: ensure database schema and PostGIS are up to date
+    import asyncio
+    await asyncio.to_thread(ensure_migrations_applied)
+
     yield
+
     # Shutdown logic: dispose async engine pool
     from app.core.database import engine
     await engine.dispose()

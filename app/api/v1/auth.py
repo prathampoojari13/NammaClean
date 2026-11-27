@@ -68,7 +68,7 @@ async def register_citizen_endpoint(
         raise
     except Exception as exc:
         await db.rollback()
-        logger.error("Unexpected error during citizen registration: %s", type(exc).__name__)
+        logger.error("Unexpected error during citizen registration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during registration. Please try again.",
@@ -135,7 +135,7 @@ async def login_endpoint(
         raise
     except Exception as exc:
         await db.rollback()
-        logger.error("Unexpected error during login: %s", type(exc).__name__)
+        logger.error("Unexpected error during login: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during login. Please try again.",

@@ -66,6 +66,16 @@ async def check_database_connection() -> Dict[str, Any]:
             postgis_installed = row is not None
             postgis_version = str(row[0]) if row else None
 
+            # 4. Query current migration revision safely without throwing if absent
+            migration_revision = None
+            try:
+                rev_res = await conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+                rev_row = rev_res.fetchone()
+                if rev_row:
+                    migration_revision = str(rev_row[0])
+            except Exception:
+                pass
+
             return {
                 "connected": True,
                 "latency_ms": latency_ms,
@@ -74,6 +84,7 @@ async def check_database_connection() -> Dict[str, Any]:
                 "port": engine.url.port or settings.POSTGRES_PORT,
                 "postgis_installed": postgis_installed,
                 "postgis_version": postgis_version,
+                "migration_revision": migration_revision,
             }
     except Exception as exc:
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
