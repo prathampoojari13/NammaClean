@@ -139,6 +139,19 @@ async def submit_report(
     db.add(report)
     await db.commit()
 
+    # Trigger persistent civic notification for reporter
+    from app.services.notification_service import create_notification
+    await create_notification(
+        db=db,
+        user_id=current_user.id,
+        title="Civic Incident Report Submitted",
+        message=f"Incident report #{str(report.id)[:8]} has been registered and forwarded to BBMP sanitation control.",
+        notification_type="COMPLAINT_UPDATE",
+        related_entity_type="dumping_report",
+        related_entity_id=report.id,
+    )
+    await db.commit()
+
     # Eagerly reload persisted report with evidence collection to prevent MissingGreenlet in async sessions
     stmt = (
         select(DumpingReport)
@@ -432,6 +445,20 @@ async def update_report_status(
         report.official_notes = clean_notes
 
     await db.commit()
+
+    # Trigger persistent status notification to citizen reporter
+    if report.reporter_id:
+        from app.services.notification_service import create_notification
+        await create_notification(
+            db=db,
+            user_id=report.reporter_id,
+            title=f"Complaint Status: {target_status}",
+            message=f"Incident report #{str(report.id)[:8]} status changed to {target_status}. Notes: {clean_notes or 'Updated by municipal control.'}",
+            notification_type="COMPLAINT_UPDATE",
+            related_entity_type="dumping_report",
+            related_entity_id=report.id,
+        )
+        await db.commit()
 
     # Reload with evidence collection to prevent MissingGreenlet in async sessions
     stmt = (

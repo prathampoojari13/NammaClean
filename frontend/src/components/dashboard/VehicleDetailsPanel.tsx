@@ -8,6 +8,7 @@ interface VehicleDetailsPanelProps {
   freshnessMinutes?: number | null;
   onClose: () => void;
   onViewHistory?: (vehicle: PublicVehicle) => void;
+  distanceKm?: number | null;
 }
 
 const formatLabel = (value: string) =>
@@ -46,6 +47,7 @@ export const VehicleDetailsPanel: React.FC<VehicleDetailsPanelProps> = ({
   freshnessMinutes = null,
   onClose,
   onViewHistory,
+  distanceKm,
 }) => {
   if (!vehicle) return null;
 
@@ -60,6 +62,19 @@ export const VehicleDetailsPanel: React.FC<VehicleDetailsPanelProps> = ({
     { label: 'Status', value: telemetryFresh ? formatLabel(vehicle.status) : 'Signal stale', status: true },
     { label: 'Last Updated', value: formatLastSeen(vehicle.last_seen_at) },
   ];
+
+  if (distanceKm !== undefined && distanceKm !== null) {
+    rows.push({
+      label: 'Distance',
+      value: distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(2)} km`,
+      status: false,
+    });
+    rows.push({
+      label: 'Estimated Arrival',
+      value: 'ETA unavailable',
+      status: false,
+    });
+  }
 
   return (
     <aside

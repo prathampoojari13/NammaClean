@@ -184,6 +184,14 @@ export class ApiClient {
     });
   }
 
+  patch<T>(endpoint: string, data?: unknown, headers?: HeadersInit): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: data !== undefined ? JSON.stringify(data) : undefined,
+      headers,
+    });
+  }
+
   delete<T>(endpoint: string, headers?: HeadersInit): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE', headers });
   }

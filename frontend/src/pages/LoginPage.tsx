@@ -32,7 +32,7 @@ const roleDestinations: Partial<Record<User['role'], {
   },
   DRIVER: {
     audience: 'staff',
-    path: '/worker',
+    path: '/driver',
     label: 'sanitation workforce',
     loginPath: '/login/staff',
     loginLabel: 'Staff Login',

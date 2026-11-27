@@ -13,6 +13,11 @@ from app.api.v1 import (
     reports,
     muster_points,
     attendance,
+    drivers,
+    geocoding,
+    notifications,
+    supervisor,
+    worker,
 )
 
 api_router = APIRouter()
@@ -20,11 +25,17 @@ api_router = APIRouter()
 # Include health routes
 api_router.include_router(health.router, tags=["Health"])
 
+# Include geocoding and reverse geocoding routes
+api_router.include_router(geocoding.router)
+
 # Include authentication routes
 api_router.include_router(auth.router)
 
 # Include user profile routes
 api_router.include_router(users.router)
+
+# Include persistent notifications routes
+api_router.include_router(notifications.router)
 
 # Include administrative routes
 api_router.include_router(admin.router)
@@ -55,3 +66,12 @@ api_router.include_router(muster_points.router)
 
 # Include attendance and QR roll-call routes
 api_router.include_router(attendance.router)
+
+# Include driver management and dashboard telemetry routes
+api_router.include_router(drivers.router)
+
+# Include supervisor workforce management, schedules, and stats routes
+api_router.include_router(supervisor.router)
+
+# Include sanitation worker personal schedules, routes, and history routes
+api_router.include_router(worker.router)

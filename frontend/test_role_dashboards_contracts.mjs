@@ -57,14 +57,14 @@ test('5. Role destinations and allowed audience mapping', () => {
   const roleDestinations = {
     CITIZEN: { audience: 'citizen', path: '/citizen' },
     SANITATION_WORKER: { audience: 'staff', path: '/worker' },
-    DRIVER: { audience: 'staff', path: '/worker' },
+    DRIVER: { audience: 'staff', path: '/driver' },
     WARD_SUPERVISOR: { audience: 'official', path: '/supervisor' },
     MUNICIPAL_ADMIN: { audience: 'official', path: '/supervisor' },
   };
 
   assert.equal(roleDestinations.CITIZEN.path, '/citizen');
   assert.equal(roleDestinations.SANITATION_WORKER.path, '/worker');
-  assert.equal(roleDestinations.DRIVER.path, '/worker');
+  assert.equal(roleDestinations.DRIVER.path, '/driver');
   assert.equal(roleDestinations.WARD_SUPERVISOR.path, '/supervisor');
   assert.equal(roleDestinations.MUNICIPAL_ADMIN.path, '/supervisor');
 });

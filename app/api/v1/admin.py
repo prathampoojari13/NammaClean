@@ -5,7 +5,7 @@ Restricted exclusively to Municipal Admins.
 
 import uuid
 import logging
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -81,6 +81,26 @@ async def create_operational_user(
             detail="An account with this email address already exists.",
         )
 
+    # Pre-check for duplicate official_id if provided
+    if payload.official_id:
+        off_stmt = select(User).where(User.official_id == payload.official_id)
+        off_res = await db.execute(off_stmt)
+        if off_res.scalars().first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Official ID '{payload.official_id}' is already registered to another personnel account.",
+            )
+
+    # Validate ward if provided
+    if payload.ward_id:
+        w_stmt = select(Ward).where(Ward.id == payload.ward_id)
+        w_res = await db.execute(w_stmt)
+        if w_res.scalars().first() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Ward with id '{payload.ward_id}' not found.",
+            )
+
     plain_password = payload.password.get_secret_value()
     pwd_hash = hash_password(plain_password)
 
@@ -90,10 +110,23 @@ async def create_operational_user(
         password_hash=pwd_hash,
         role=payload.role.value,
         status=payload.status.value,
+        full_name=payload.full_name,
+        official_id=payload.official_id,
+        phone_number=payload.phone_number,
+        ward_id=payload.ward_id,
     )
 
     try:
         db.add(user)
+        if payload.ward_id:
+            assignment = UserWardAssignment(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                ward_id=payload.ward_id,
+                assigned_at=utc_now(),
+                revoked_at=None,
+            )
+            db.add(assignment)
         await db.commit()
         await db.refresh(user)
         return UserResponse.model_validate(user)
@@ -313,3 +346,68 @@ async def list_user_ward_assignments(
     assignments = res.scalars().all()
 
     return [UserWardAssignmentResponse.model_validate(a) for a in assignments]
+
+
+@router.get(
+    "/workforce",
+    status_code=status.HTTP_200_OK,
+    summary="List Municipal Operational Workforce",
+    description="Lists all operational personnel (workers, drivers, supervisors) with their official IDs, wards, and vehicles.",
+)
+async def list_workforce(
+    role: Optional[str] = None,
+    current_user: User = Depends(require_roles(UserRole.MUNICIPAL_ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns full municipal workforce roster for administrative oversight.
+    Includes workers, drivers, and supervisors.
+    """
+    from app.models.vehicle import Vehicle
+
+    stmt = select(User).where(
+        User.role.in_([
+            UserRole.SANITATION_WORKER.value,
+            UserRole.DRIVER.value,
+            UserRole.WARD_SUPERVISOR.value,
+        ])
+    )
+    if role:
+        stmt = stmt.where(User.role == role)
+
+    stmt = stmt.order_by(User.created_at.desc())
+    res = await db.execute(stmt)
+    users = res.scalars().all()
+
+    # Pre-fetch wards
+    wards_res = await db.execute(select(Ward))
+    wards_by_id = {w.id: w for w in wards_res.scalars().all()}
+
+    # Pre-fetch assigned vehicles
+    veh_res = await db.execute(select(Vehicle).where(Vehicle.assigned_driver_id.is_not(None)))
+    vehicles_by_driver = {v.assigned_driver_id: v for v in veh_res.scalars().all()}
+
+    roster = []
+    for u in users:
+        ward = wards_by_id.get(u.ward_id)
+        assigned_veh = vehicles_by_driver.get(u.id)
+        roster.append({
+            "id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "official_id": u.official_id,
+            "phone_number": u.phone_number,
+            "role": u.role,
+            "status": u.status,
+            "ward_id": str(u.ward_id) if u.ward_id else None,
+            "ward_name": ward.display_name if ward else None,
+            "assigned_vehicle": {
+                "id": str(assigned_veh.id),
+                "registration_number": assigned_veh.registration_number,
+                "vehicle_type": assigned_veh.vehicle_type,
+                "status": assigned_veh.status,
+            } if assigned_veh else None,
+            "created_at": u.created_at.isoformat(),
+        })
+
+    return roster

@@ -16,10 +16,12 @@ import { SummaryCards } from '../../components/dashboard/SummaryCards';
 import { PublicVehicleMap } from '../../components/map/PublicVehicleMap';
 import { VehicleDetailsPanel } from '../../components/dashboard/VehicleDetailsPanel';
 import { ReportDumpingModal } from '../../components/dashboard/ReportDumpingModal';
+import { UserProfileModal } from '../../components/profile/UserProfileModal';
 import { apiClient } from '../../api/client';
 import { getMyReports } from '../../api/reports';
 import { fetchPublicMapSummary } from '../../api/publicMap';
 import { PublicVehicle, PublicMapSummary, DumpingReport, User } from '../../types';
+import { DEFAULT_PILOT_LOCALITY, LocalityOption } from '../../utils/localities';
 import '../../styles/citizen-dashboard.css';
 
 const scrollToMap = () => {
@@ -46,7 +48,9 @@ const getStatusBadgeStyle = (status: string) => {
 export const CitizenDashboard: React.FC = () => {
   const [selectedVehicle, setSelectedVehicle] = useState<PublicVehicle | null>(null);
   const [summary, setSummary] = useState<PublicMapSummary | null>(null);
+  const [selectedLocality, setSelectedLocality] = useState<LocalityOption>(DEFAULT_PILOT_LOCALITY);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(false);
   const [userReports, setUserReports] = useState<DumpingReport[] | null>(null);
@@ -135,6 +139,8 @@ export const CitizenDashboard: React.FC = () => {
             scrollToMap();
           } else if (tab === 'my-reports') {
             setActiveTab('my-reports');
+          } else if (tab === 'profile') {
+            setIsProfileModalOpen(true);
           } else {
             setActiveTab('dashboard');
           }
@@ -146,7 +152,11 @@ export const CitizenDashboard: React.FC = () => {
       {/* Main Content Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowX: 'hidden' }}>
         <section className="nc-dashboard-band" id="home">
-          <CitizenHeader onTrackClick={scrollToMap} />
+          <CitizenHeader
+            onTrackClick={scrollToMap}
+            selectedWardName={selectedLocality.name}
+            onLocalityChange={setSelectedLocality}
+          />
           <div className="nc-dashboard-band-inner">
             <CitizenBanner user={currentUser} isLoading={isLoadingUser} />
             <SummaryCards
@@ -168,6 +178,9 @@ export const CitizenDashboard: React.FC = () => {
                 selectedVehicle={selectedVehicle}
                 onVehicleSelect={setSelectedVehicle}
                 onSummaryLoaded={setSummary}
+                selectedLocality={selectedLocality}
+                onLocalityChange={setSelectedLocality}
+                complaints={userReports || []}
                 details={
                   selectedVehicle ? (
                     <VehicleDetailsPanel
@@ -463,6 +476,15 @@ export const CitizenDashboard: React.FC = () => {
           onClose={() => setIsReportModalOpen(false)}
           onReportCreated={() => {
             loadUserReports();
+          }}
+        />
+
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          currentUser={currentUser}
+          onProfileUpdated={(updated) => {
+            setCurrentUser(updated);
           }}
         />
 

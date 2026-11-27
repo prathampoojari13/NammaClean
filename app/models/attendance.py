@@ -189,6 +189,14 @@ class AttendanceRecord(Base):
         Float,
         nullable=True,
     )
+    check_in_accuracy_meters: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    check_out_accuracy_meters: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
@@ -198,6 +206,16 @@ class AttendanceRecord(Base):
     )
     exception_reason: Mapped[Optional[str]] = mapped_column(
         String(500),
+        nullable=True,
+    )
+    schedule_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("worker_schedules.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    duration_minutes: Mapped[Optional[int]] = mapped_column(
+        Integer,
         nullable=True,
     )
     reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(

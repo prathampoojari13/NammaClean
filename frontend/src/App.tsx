@@ -8,12 +8,17 @@ import { StaffAccessPage } from './pages/StaffAccessPage';
 import { CitizenDashboard } from './pages/dashboards/CitizenDashboard';
 import { SupervisorDashboard } from './pages/dashboards/SupervisorDashboard';
 import { WorkerDashboard } from './pages/dashboards/WorkerDashboard';
+import { DriverDashboard } from './pages/dashboards/DriverDashboard';
+import { AdminDashboard } from './pages/dashboards/AdminDashboard';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { apiClient } from './api/client';
 import type { User, UserRole } from './types';
 
+const ALLOWED_CITIZEN: UserRole[] = ['CITIZEN'];
 const ALLOWED_SUPERVISOR: UserRole[] = ['WARD_SUPERVISOR', 'MUNICIPAL_ADMIN'];
 const ALLOWED_WORKER: UserRole[] = ['SANITATION_WORKER', 'DRIVER'];
+const ALLOWED_DRIVER: UserRole[] = ['DRIVER'];
+const ALLOWED_ADMIN: UserRole[] = ['MUNICIPAL_ADMIN'];
 
 const RoleRoute: React.FC<{ allowed: UserRole[]; children: React.ReactElement }> = ({ allowed, children }) => {
   const location = useLocation();
@@ -71,11 +76,37 @@ const RoleRoute: React.FC<{ allowed: UserRole[]; children: React.ReactElement }>
 };
 
 export const App: React.FC = () => {
+  useEffect(() => {
+    // Back-Forward Cache (bfcache) protection:
+    // If a cached page is restored via browser back-button after logout, ensure immediate redirect.
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        const token = localStorage.getItem('nammaclean.access_token');
+        const path = window.location.pathname;
+        const isPublicPath = path === '/' || path === '/welcome' || path.startsWith('/login') || path === '/register';
+        if (!token && !isPublicPath) {
+          window.location.replace('/login');
+        }
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<CitizenDashboard />} />
-        <Route path="/citizen" element={<CitizenDashboard />} />
+        <Route
+          path="/citizen"
+          element={
+            <RoleRoute allowed={ALLOWED_CITIZEN}>
+              <CitizenDashboard />
+            </RoleRoute>
+          }
+        />
         <Route
           path="/supervisor"
           element={
@@ -85,10 +116,26 @@ export const App: React.FC = () => {
           }
         />
         <Route
+          path="/admin"
+          element={
+            <RoleRoute allowed={ALLOWED_ADMIN}>
+              <AdminDashboard />
+            </RoleRoute>
+          }
+        />
+        <Route
           path="/worker"
           element={
             <RoleRoute allowed={ALLOWED_WORKER}>
               <WorkerDashboard />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/driver"
+          element={
+            <RoleRoute allowed={ALLOWED_DRIVER}>
+              <DriverDashboard />
             </RoleRoute>
           }
         />

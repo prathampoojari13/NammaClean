@@ -14,6 +14,8 @@ from app.models.vehicle import Vehicle, VehiclePosition
 from app.models.route import CollectionRoute, RouteStop
 from app.models.dumping_report import DumpingReport, ReportEvidence
 from app.models.attendance import MusterPoint, AttendanceRecord, AttendanceQrToken
+from app.models.notification import Notification
+from app.models.schedule import WorkerSchedule, ScheduleOverride
 
 
 __all__ = [
@@ -38,6 +40,9 @@ __all__ = [
     "MusterPoint",
     "AttendanceRecord",
     "AttendanceQrToken",
+    "Notification",
+    "WorkerSchedule",
+    "ScheduleOverride",
 ]
 
 

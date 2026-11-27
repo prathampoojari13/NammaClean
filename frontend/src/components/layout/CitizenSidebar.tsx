@@ -13,9 +13,12 @@ import {
   BarChart3,
   Truck,
   LayoutDashboard,
+  Navigation,
+  UserCheck,
+  Bell,
 } from 'lucide-react';
 
-export type DashboardRole = 'citizen' | 'worker' | 'supervisor' | 'admin';
+export type DashboardRole = 'citizen' | 'worker' | 'supervisor' | 'admin' | 'driver';
 
 interface CitizenSidebarProps {
   role?: DashboardRole;
@@ -36,22 +39,41 @@ export const CitizenSidebar: React.FC<CitizenSidebarProps> = ({
 
   const getNavItems = () => {
     switch (role) {
+      case 'driver':
+        return [
+          { id: 'dashboard', label: 'Duty & Status', icon: LayoutDashboard, path: '/driver' },
+          { id: 'tracking', label: 'Live GPS', icon: Navigation, path: '/driver' },
+          { id: 'vehicle', label: 'Vehicle Info', icon: Truck, path: '/driver' },
+          { id: 'profile', label: 'Profile', icon: User, path: '/driver' },
+        ];
       case 'worker':
         return [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/worker' },
-          { id: 'attendance', label: 'Attendance', icon: CalendarCheck, path: '/worker' },
-          { id: 'tasks', label: 'My Tasks', icon: ClipboardList, path: '/worker' },
-          { id: 'vehicle', label: 'Vehicle Info', icon: Truck, path: '/worker' },
-          { id: 'profile', label: 'Profile', icon: User, path: '/worker' },
+          { id: 'schedule', label: 'My Schedule', icon: CalendarCheck, path: '/worker' },
+          { id: 'route', label: 'My Route', icon: Navigation, path: '/worker' },
+          { id: 'history', label: 'Attendance History', icon: ClipboardList, path: '/worker' },
+          { id: 'notifications', label: 'Notifications', icon: Bell, path: '/worker' },
+          { id: 'profile', label: 'My Profile', icon: User, path: '/worker' },
+        ];
+      case 'admin':
+        return [
+          { id: 'admin', label: 'Workforce Registry', icon: Users, path: '/admin' },
+          { id: 'dashboard', label: 'Supervisor Ops', icon: LayoutDashboard, path: '/supervisor' },
+          { id: 'vehicles', label: 'Fleet Telemetry', icon: Truck, path: '/supervisor' },
+          { id: 'drivers', label: 'Driver Management', icon: Users, path: '/supervisor' },
+          { id: 'workers', label: 'Worker Management', icon: UserCheck, path: '/supervisor' },
+          { id: 'attendance', label: 'Worker Attendance', icon: CalendarCheck, path: '/supervisor' },
+          { id: 'reports', label: 'Citizen Reports', icon: FileText, path: '/supervisor' },
         ];
       case 'supervisor':
-      case 'admin':
         return [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/supervisor' },
           { id: 'vehicles', label: 'Vehicle Monitoring', icon: Truck, path: '/supervisor' },
-          { id: 'reports', label: 'Citizen Reports', icon: FileText, path: '/supervisor' },
-          { id: 'workers', label: 'Worker Attendance', icon: Users, path: '/supervisor' },
+          { id: 'drivers', label: 'Driver Management', icon: Users, path: '/supervisor' },
+          { id: 'workers', label: 'Worker Management', icon: UserCheck, path: '/supervisor' },
+          { id: 'attendance', label: 'Worker Attendance', icon: CalendarCheck, path: '/supervisor' },
           { id: 'analytics', label: 'Operations Roster', icon: BarChart3, path: '/supervisor' },
+          { id: 'reports', label: 'Citizen Reports', icon: FileText, path: '/supervisor' },
         ];
       case 'citizen':
       default:
@@ -60,6 +82,7 @@ export const CitizenSidebar: React.FC<CitizenSidebarProps> = ({
           { id: 'report', label: 'Report Illegal Dumping', icon: AlertTriangle, path: '/citizen' },
           { id: 'my-reports', label: 'My Reports', icon: FileText, path: '/citizen' },
           { id: 'track', label: 'Track Vehicles', icon: Car, path: '/citizen' },
+          { id: 'profile', label: 'My Profile', icon: User, path: '/citizen' },
           { id: 'about', label: 'About', icon: Info, path: '/welcome' },
         ];
     }

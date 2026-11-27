@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { AlertTriangle, Crosshair, MapPin, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Crosshair, MapPin, RefreshCw, Bell, BellRing, Navigation } from 'lucide-react';
 import {
   fetchPublicVehicles,
   fetchPublicRoutes,
@@ -15,9 +15,12 @@ import {
   PublicRoute,
   PublicCollectionPoint,
   PublicMapSummary,
+  DumpingReport,
 } from '../../types';
 import { Spinner } from '../ui/Spinner';
 import { hasCurrentVehicleSignal } from '../../utils/publicMapFreshness';
+import { BENGALURU_LOCALITIES, LocalityOption } from '../../utils/localities';
+import { triggerTestNotification } from '../../api/notifications';
 
 const DEFAULT_CENTER: [number, number] = [12.9716, 77.5946];
 const DEFAULT_ZOOM = 12;
@@ -158,12 +161,41 @@ const createCollectionPointIcon = () => {
   });
 };
 
+const createComplaintIcon = (status: string) => {
+  let color = '#D97706';
+  if (status === 'UNDER_REVIEW') color = '#2563EB';
+  else if (status === 'ACTION_SCHEDULED') color = '#9333EA';
+  else if (status === 'RESOLVED') color = '#16A34A';
+  else if (status === 'REJECTED') color = '#DC2626';
+
+  const html = `
+    <div style="cursor: pointer; width: 30px; height: 38px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));">
+      <svg width="30" height="38" viewBox="0 0 30 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M15 0C6.716 0 0 6.716 0 15C0 26.25 15 38 15 38C15 38 30 26.25 30 15C30 6.716 23.284 0 15 0Z" fill="${color}" stroke="#FFFFFF" stroke-width="2"/>
+        <circle cx="15" cy="14" r="7" fill="#FFFFFF"/>
+        <path d="M15 10V15M15 18H15.01" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+  `;
+
+  return L.divIcon({
+    className: 'custom-complaint-marker',
+    html,
+    iconSize: [30, 38],
+    iconAnchor: [15, 38],
+    popupAnchor: [0, -36],
+  });
+};
+
 export interface PublicVehicleMapProps {
   wardId?: string;
   selectedVehicle?: PublicVehicle | null;
   onVehicleSelect?: (vehicle: PublicVehicle | null) => void;
   onSummaryLoaded?: (summary: PublicMapSummary) => void;
   details?: ReactNode;
+  complaints?: DumpingReport[];
+  selectedLocality?: LocalityOption;
+  onLocalityChange?: (locality: LocalityOption) => void;
 }
 
 const LegendRow: React.FC<{ swatch: ReactNode; label: string }> = ({ swatch, label }) => (
@@ -179,12 +211,16 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
   onVehicleSelect,
   onSummaryLoaded,
   details,
+  complaints,
+  selectedLocality,
+  onLocalityChange,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const routesLayerRef = useRef<L.LayerGroup | null>(null);
   const pilotLayerRef = useRef<L.LayerGroup | null>(null);
+  const complaintsLayerRef = useRef<L.LayerGroup | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const selectedVehicleRef = useRef(selectedVehicle);
   const hasAutoSelectedVehicleRef = useRef(false);
@@ -210,6 +246,130 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
   const satelliteTileLayerRef = useRef<L.TileLayer | null>(null);
   const failedTilesCountRef = useRef(0);
 
+  // User location & arrival alert states
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
+  const [locationNotice, setLocationNotice] = useState<string | null>(null);
+  const [isArrivalAlertsEnabled, setIsArrivalAlertsEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('nammaclean:arrival_alerts') === 'true';
+  });
+  const [showArrivalModal, setShowArrivalModal] = useState(false);
+  const userMarkerRef = useRef<L.Marker | null>(null);
+  const userCircleRef = useRef<L.Circle | null>(null);
+  const alertedVehiclesRef = useRef<Record<string, number>>({});
+  const userLocationRef = useRef(userLocation);
+  const isArrivalAlertsEnabledRef = useRef(isArrivalAlertsEnabled);
+
+  useEffect(() => {
+    userLocationRef.current = userLocation;
+  }, [userLocation]);
+
+  useEffect(() => {
+    isArrivalAlertsEnabledRef.current = isArrivalAlertsEnabled;
+  }, [isArrivalAlertsEnabled]);
+
+  const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const r = 6371.0;
+    const dlat = ((lat2 - lat1) * Math.PI) / 180.0;
+    const dlon = ((lon2 - lon1) * Math.PI) / 180.0;
+    const a =
+      Math.sin(dlat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180.0) *
+        Math.cos((lat2 * Math.PI) / 180.0) *
+        Math.sin(dlon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return r * c;
+  };
+
+  const handleLocateMe = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationNotice('Geolocation is not supported by your browser.');
+      return;
+    }
+    setIsLocatingUser(true);
+    setLocationNotice(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+
+        setUserLocation({ lat, lng, accuracy });
+        setIsLocatingUser(false);
+
+        const map = mapInstanceRef.current;
+        if (!map) return;
+
+        if (!userMarkerRef.current) {
+          const userIcon = L.divIcon({
+            className: 'custom-citizen-pin',
+            html: `
+              <div style="position: relative; width: 22px; height: 22px;">
+                <div style="position: absolute; inset: 0; border-radius: 50%; background: #3B82F6; opacity: 0.35;"></div>
+                <div style="position: absolute; inset: 4px; border-radius: 50%; background: #2563EB; border: 2px solid #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.35);"></div>
+              </div>
+            `,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+          });
+          const marker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+          marker.bindPopup(`<strong>My Location</strong><br>Accuracy: ±${Math.round(accuracy)}m`);
+          userMarkerRef.current = marker;
+
+          const circle = L.circle([lat, lng], {
+            radius: Math.min(accuracy, 200),
+            color: '#3B82F6',
+            fillColor: '#93C5FD',
+            fillOpacity: 0.15,
+            weight: 1,
+          }).addTo(map);
+          userCircleRef.current = circle;
+        } else {
+          userMarkerRef.current.setLatLng([lat, lng]);
+          if (userCircleRef.current) {
+            userCircleRef.current.setLatLng([lat, lng]);
+            userCircleRef.current.setRadius(Math.min(accuracy, 200));
+          }
+        }
+
+        map.flyTo([lat, lng], 15, { duration: 1.2 });
+      },
+      (err) => {
+        setIsLocatingUser(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationNotice('Location permission denied. Please enable GPS in browser.');
+        } else {
+          setLocationNotice('Could not acquire GPS fix. Try again.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  }, []);
+
+  const handleToggleArrivalAlerts = () => {
+    if (!isArrivalAlertsEnabled) {
+      setShowArrivalModal(true);
+    } else {
+      setIsArrivalAlertsEnabled(false);
+      localStorage.setItem('nammaclean:arrival_alerts', 'false');
+    }
+  };
+
+  const confirmEnableArrivalAlerts = async () => {
+    setShowArrivalModal(false);
+    setIsArrivalAlertsEnabled(true);
+    localStorage.setItem('nammaclean:arrival_alerts', 'true');
+
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      try {
+        await Notification.requestPermission();
+      } catch {
+        // Fallback to in-app
+      }
+    }
+  };
+
   useEffect(() => {
     selectedVehicleRef.current = selectedVehicle;
   }, [selectedVehicle]);
@@ -226,11 +386,13 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
     const routesLayer = L.layerGroup().addTo(map);
     const pilotLayer = L.layerGroup().addTo(map);
     const markersLayer = L.layerGroup().addTo(map);
+    const complaintsLayer = L.layerGroup().addTo(map);
 
     mapInstanceRef.current = map;
     routesLayerRef.current = routesLayer;
     pilotLayerRef.current = pilotLayer;
     markersLayerRef.current = markersLayer;
+    complaintsLayerRef.current = complaintsLayer;
 
     // 1. Street layer with smooth buffer and viewport-idle rendering
     const streetLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -295,8 +457,83 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
       routesLayerRef.current = null;
       pilotLayerRef.current = null;
       markersLayerRef.current = null;
+      complaintsLayerRef.current = null;
     };
   }, []);
+
+  // Center or fly to selected locality when updated
+  useEffect(() => {
+    if (selectedLocality && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo(
+        [selectedLocality.latitude, selectedLocality.longitude],
+        14,
+        { duration: 1.2 }
+      );
+    }
+  }, [selectedLocality]);
+
+  // Render Citizen Complaints on Map
+  useEffect(() => {
+    const layer = complaintsLayerRef.current;
+    if (!layer) return;
+
+    layer.clearLayers();
+    if (!complaints || complaints.length === 0) return;
+
+    complaints.forEach((report) => {
+      if (isValidMapCoordinate(report.latitude, report.longitude)) {
+        const marker = L.marker([report.latitude, report.longitude], {
+          icon: createComplaintIcon(report.status),
+          zIndexOffset: 300,
+        });
+
+        const dateStr = new Date(report.created_at).toLocaleDateString('en-IN', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
+
+        const photosCount = report.evidence?.length || 0;
+
+        let statusBg = '#FEF3C7';
+        let statusColor = '#92400E';
+        if (report.status === 'UNDER_REVIEW') {
+          statusBg = '#DBEAFE';
+          statusColor = '#1E40AF';
+        } else if (report.status === 'ACTION_SCHEDULED') {
+          statusBg = '#F3E8FF';
+          statusColor = '#6B21A8';
+        } else if (report.status === 'RESOLVED') {
+          statusBg = '#D1FAE5';
+          statusColor = '#065F46';
+        } else if (report.status === 'REJECTED') {
+          statusBg = '#FEE2E2';
+          statusColor = '#991B1B';
+        }
+
+        marker.bindPopup(`
+          <div style="font-family: inherit; font-size: 0.85rem; min-width: 220px; max-width: 270px; padding: 2px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <strong style="color: #183B2A; font-size: 0.88rem;">Incident #${escapeHtml(report.id.slice(0, 8))}</strong>
+              <span style="font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: ${statusBg}; color: ${statusColor};">
+                ${escapeHtml(formatStatus(report.status))}
+              </span>
+            </div>
+            <p style="margin: 0 0 6px; color: #374151; font-size: 0.82rem; line-height: 1.4;">
+              ${escapeHtml(report.description)}
+            </p>
+            <div style="font-size: 0.74rem; color: #6B7280; border-top: 1px solid #E5E7EB; padding-top: 5px; display: flex; justify-content: space-between;">
+              <span>📍 ${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}</span>
+              <span>📅 ${dateStr}</span>
+            </div>
+            ${photosCount > 0 ? `<div style="font-size: 0.74rem; color: #0284C7; font-weight: 600; margin-top: 3px;">📷 ${photosCount} photo(s) attached</div>` : ''}
+          </div>
+        `);
+
+        layer.addLayer(marker);
+      }
+    });
+  }, [complaints]);
 
   useEffect(() => {
     mapModeRef.current = mapMode;
@@ -381,6 +618,43 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
           const vList = vehiclesRes.value;
           setVehicles(vList);
           setTelemetrySource('api');
+
+          // Proximity arrival alerts detection (500m early alert, 200m near arrival)
+          if (isArrivalAlertsEnabledRef.current && userLocationRef.current) {
+            const uLoc = userLocationRef.current;
+            const now = Date.now();
+            vList.forEach((veh) => {
+              if (isValidMapCoordinate(veh.latitude, veh.longitude) && veh.latitude != null && veh.longitude != null) {
+                const distKm = haversineKm(uLoc.lat, uLoc.lng, veh.latitude, veh.longitude);
+                const lastAlert = alertedVehiclesRef.current[veh.id] || 0;
+                // Alert if within 500m (0.5km) and not alerted in the last 15 minutes
+                if (distKm <= 0.5 && now - lastAlert > 15 * 60 * 1000) {
+                  alertedVehiclesRef.current[veh.id] = now;
+                  const distM = Math.round(distKm * 1000);
+                  const isArrived = distKm <= 0.2;
+                  const alertMsg = isArrived
+                    ? `Collection vehicle ${vehiclePlate(veh)} is at your doorstep (${distM}m away)!`
+                    : `Collection vehicle ${vehiclePlate(veh)} is approaching your location (~${distM}m away).`;
+
+                  // System/Browser notification if permission granted
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    try {
+                      new Notification('NammaClean Arrival Alert', {
+                        body: alertMsg,
+                        icon: '/favicon.ico',
+                      });
+                    } catch {
+                      // ignore
+                    }
+                  }
+
+                  // Persistent in-app notification center
+                  triggerTestNotification(alertMsg, isArrived ? 'VEHICLE_ARRIVED' : 'VEHICLE_NEAR').catch(() => {});
+                }
+              }
+            });
+          }
+
           const currentVehicle = selectedVehicleRef.current;
           if (currentVehicle) {
             onVehicleSelect?.(vList.find((vehicle) => vehicle.id === currentVehicle.id) ?? null);
@@ -778,6 +1052,88 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
               <MapPin size={13} />
               <span>Entire Bengaluru</span>
             </button>
+
+            {/* Direct Citywide Locality Switcher */}
+            <select
+              aria-label="Filter Map by Bengaluru Sector"
+              value={selectedLocality?.id || 'yelahanka'}
+              onChange={(e) => {
+                const targetLoc = BENGALURU_LOCALITIES.find((l) => l.id === e.target.value);
+                if (targetLoc) {
+                  onLocalityChange?.(targetLoc);
+                  if (mapInstanceRef.current) {
+                    mapInstanceRef.current.flyTo(
+                      [targetLoc.latitude, targetLoc.longitude],
+                      14,
+                      { duration: 1.2 }
+                    );
+                  }
+                }
+              }}
+              style={{
+                padding: '4px 9px',
+                borderRadius: '8px',
+                border: '1px solid #D5E3D7',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                backgroundColor: '#FFFFFF',
+                color: '#183B2A',
+                cursor: 'pointer',
+              }}
+            >
+              {BENGALURU_LOCALITIES.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} {loc.isPilot ? '★ Pilot' : ''}
+                </option>
+              ))}
+            </select>
+
+            {/* My Location GPS Button */}
+            <button
+              type="button"
+              onClick={handleLocateMe}
+              disabled={isLocatingUser}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                backgroundColor: userLocation ? '#EFF6FF' : '#FFFFFF',
+                color: userLocation ? '#2563EB' : '#183B2A',
+                border: userLocation ? '1px solid #BFDBFE' : '1px solid #D5E3D7',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                fontWeight: 650,
+                cursor: 'pointer',
+              }}
+              title="Detect your current GPS location on the map"
+            >
+              <Navigation size={13} className={isLocatingUser ? 'nc-refreshing' : ''} />
+              <span>{isLocatingUser ? 'Locating…' : userLocation ? 'My Location ✓' : 'My Location'}</span>
+            </button>
+
+            {/* Arrival Alerts Proximity Notifications Button */}
+            <button
+              type="button"
+              onClick={handleToggleArrivalAlerts}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                backgroundColor: isArrivalAlertsEnabled ? '#FEF3C7' : '#FFFFFF',
+                color: isArrivalAlertsEnabled ? '#92400E' : '#183B2A',
+                border: isArrivalAlertsEnabled ? '1px solid #FDE68A' : '1px solid #D5E3D7',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                fontWeight: 650,
+                cursor: 'pointer',
+              }}
+              title="Get notified when a waste collection vehicle approaches within 500m"
+            >
+              {isArrivalAlertsEnabled ? <BellRing size={13} color="#D97706" /> : <Bell size={13} />}
+              <span>{isArrivalAlertsEnabled ? 'Arrival Alerts ON' : 'Arrival Alerts'}</span>
+            </button>
           </div>
         </div>
         <div className="nc-map-head-meta">
@@ -906,48 +1262,189 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
               swatch={<span style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: '#9CA3AF', display: 'inline-block' }} />}
             />
           </div>
+          {complaints && complaints.length > 0 && (
+            <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px solid #E5E7EB' }}>
+              <div className="nc-map-legend-subtitle" style={{ marginBottom: '0.4rem' }}>Incidents</div>
+              <LegendRow
+                label={`Complaints (${complaints.length})`}
+                swatch={
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      backgroundColor: '#D97706',
+                      border: '1.5px solid #FFFFFF',
+                      boxShadow: '0 0 0 1px #D97706',
+                    }}
+                  />
+                }
+              />
+            </div>
+          )}
         </aside>
 
         <div className="nc-map-column">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: '#E8F5E9',
-              border: '1px solid #D5E3D7',
-              borderRadius: '10px',
-              padding: '6px 12px',
-              fontSize: '0.82rem',
-              color: '#183B2A',
-              gap: '8px',
-              flexWrap: 'wrap',
-              marginBottom: '0.65rem',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '1rem' }}>🎯</span>
-              <span>
-                <strong>Bengaluru City-Wide Context:</strong> Operational pilot active in <strong>Yelahanka &amp; Avalahalli (BMSIT&amp;M Corridor)</strong>.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleFocusPilot}
+          {selectedLocality && !selectedLocality.isPilot ? (
+            <div
               style={{
-                backgroundColor: '#2E7D32',
-                color: '#FFFFFF',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '4px 10px',
-                fontSize: '0.76rem',
-                fontWeight: 700,
-                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#EFF6FF',
+                border: '1px solid #BFDBFE',
+                borderRadius: '10px',
+                padding: '8px 12px',
+                fontSize: '0.82rem',
+                color: '#1E40AF',
+                gap: '8px',
+                flexWrap: 'wrap',
+                marginBottom: '0.65rem',
               }}
             >
-              Focus Pilot Area
-            </button>
-          </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.05rem' }}>📍</span>
+                <span>
+                  <strong>Viewing {selectedLocality.name} ({selectedLocality.zone}):</strong> Coverage Notice — Operational vehicle telemetry is currently active in the Yelahanka pilot corridor. BBMP solid waste fleet expansion is scheduled in Phase 2.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleFocusPilot}
+                style={{
+                  backgroundColor: '#2563EB',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                View Active Pilot
+              </button>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#E8F5E9',
+                border: '1px solid #D5E3D7',
+                borderRadius: '10px',
+                padding: '6px 12px',
+                fontSize: '0.82rem',
+                color: '#183B2A',
+                gap: '8px',
+                flexWrap: 'wrap',
+                marginBottom: '0.65rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '1rem' }}>🎯</span>
+                <span>
+                  <strong>Bengaluru City-Wide Context:</strong> Operational pilot active in <strong>Yelahanka &amp; Avalahalli (BMSIT&amp;M Corridor)</strong>.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleFocusPilot}
+                style={{
+                  backgroundColor: '#2E7D32',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Focus Pilot Area
+              </button>
+            </div>
+          )}
+
+          {/* Location Notice (e.g. GPS permission denied) */}
+          {locationNotice && (
+            <div
+              style={{
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #FCA5A5',
+                color: '#991B1B',
+                padding: '7px 12px',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                marginBottom: '0.65rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>{locationNotice}</span>
+              <button
+                type="button"
+                onClick={() => setLocationNotice(null)}
+                style={{ background: 'none', border: 'none', color: '#991B1B', cursor: 'pointer', fontWeight: 700 }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {/* Real-time Proximity / Distance & ETA honest status strip */}
+          {selectedVehicle && userLocation && isValidMapCoordinate(selectedVehicle.latitude, selectedVehicle.longitude) && (
+            <div
+              style={{
+                backgroundColor: '#F0FDF4',
+                border: '1px solid #BBF7D0',
+                borderRadius: '10px',
+                padding: '8px 14px',
+                marginBottom: '0.65rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Navigation size={15} color="#16A34A" />
+                <span style={{ fontSize: '0.84rem', color: '#166534', fontWeight: 650 }}>
+                  Tracking <strong>{vehiclePlate(selectedVehicle)}</strong>:
+                </span>
+                <span style={{ fontSize: '0.84rem', color: '#14532D', fontWeight: 750 }}>
+                  Straight-line distance:{' '}
+                  {(() => {
+                    const distKm = haversineKm(userLocation.lat, userLocation.lng, selectedVehicle.latitude!, selectedVehicle.longitude!);
+                    return distKm < 1 ? `${Math.round(distKm * 1000)} meters` : `${distKm.toFixed(2)} km`;
+                  })()}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  style={{
+                    backgroundColor: '#E2E8F0',
+                    color: '#475569',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  ETA: ETA unavailable
+                </span>
+                <span style={{ fontSize: '0.73rem', color: '#64748B' }}>
+                  (Traffic telemetry required)
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="nc-map-canvas">
             <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
@@ -1033,6 +1530,115 @@ export const PublicVehicleMap: React.FC<PublicVehicleMapProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Vehicle Arrival Alerts Permission Modal */}
+      {showArrivalModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '14px',
+              maxWidth: '480px',
+              width: '100%',
+              padding: '1.5rem',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+              border: '1px solid #D5E3D7',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  backgroundColor: '#FEF3C7',
+                  color: '#D97706',
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <BellRing size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 750, color: '#183B2A' }}>
+                  Enable Vehicle Arrival Alerts
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: '#5A7565' }}>
+                  Proximity alerts for waste collection
+                </p>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: '#374151', lineHeight: 1.5, margin: '0 0 1rem 0' }}>
+              NammaClean can notify you when a BBMP solid waste collection vehicle approaches within <strong>~500 meters</strong> of your location, so you can bring out segregated waste promptly.
+            </p>
+
+            <div
+              style={{
+                backgroundColor: '#F8FAFC',
+                borderRadius: '8px',
+                padding: '0.75rem',
+                fontSize: '0.78rem',
+                color: '#475569',
+                border: '1px solid #E2E8F0',
+                marginBottom: '1.25rem',
+                lineHeight: 1.4,
+              }}
+            >
+              <strong>Privacy & Notifications:</strong> Clicking enable will request browser notification permission. Proximity alerts are also recorded in your in-app Notification Center. Your location coordinates remain on your device.
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowArrivalModal(false)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: '7px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#475569',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmEnableArrivalAlerts}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  backgroundColor: '#2E7D32',
+                  color: '#FFFFFF',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(46,125,50,0.25)',
+                }}
+              >
+                Enable Alerts
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

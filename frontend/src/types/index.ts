@@ -17,6 +17,8 @@ export interface User {
   email: string;
   role: UserRole;
   status: UserStatus;
+  official_id?: string | null;
+  phone_number?: string | null;
   ward_id?: string;
   locality?: string;
   address?: string;
@@ -34,6 +36,8 @@ export interface UserProfileUpdateRequest {
   ward_id?: string;
   locality?: string;
   address?: string;
+  full_name?: string;
+  phone_number?: string;
 }
 
 export interface AdminUserCreateRequest {
@@ -41,6 +45,10 @@ export interface AdminUserCreateRequest {
   password: string;
   role: UserRole;
   status?: UserStatus;
+  full_name?: string;
+  official_id?: string;
+  phone_number?: string;
+  ward_id?: string;
 }
 
 export interface UserWardAssignment {
@@ -366,5 +374,111 @@ export interface PublicMapSummary {
   generated_at: string;
   simulation_active: boolean;
   disclaimer: string;
+}
+
+// ==========================================
+// Driver Management & Driver Dashboard Types
+// ==========================================
+
+export interface DriverAssignedVehicle {
+  id: string;
+  registration_number: string;
+  vehicle_type: VehicleType;
+  status: VehicleStatus;
+  assigned_ward_id?: string | null;
+  ward_name?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  last_seen_at?: string | null;
+  is_published: boolean;
+  is_simulated: boolean;
+  is_fresh: boolean;
+}
+
+export interface DriverSummary {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  official_id?: string | null;
+  phone_number?: string | null;
+  role: UserRole;
+  status: UserStatus;
+  ward_id?: string | null;
+  ward_name?: string | null;
+  assigned_vehicle?: DriverAssignedVehicle | null;
+  duty_status: 'ON_DUTY' | 'IDLE' | 'OFFLINE' | string;
+  duty_start_time?: string | null;
+  last_location?: { latitude: number; longitude: number } | null;
+  last_seen_at?: string | null;
+  is_stale: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DriverCreatePayload {
+  full_name: string;
+  email: string;
+  password: string;
+  official_id?: string | null;
+  phone_number?: string | null;
+  ward_id?: string | null;
+  vehicle_id?: string | null;
+  status?: UserStatus;
+}
+
+export interface DriverDutyStartPayload {
+  latitude?: number;
+  longitude?: number;
+  accuracy_meters?: number;
+  tyre_condition_checked?: boolean;
+  fuel_battery_level_ok?: boolean;
+  mirrors_lights_checked?: boolean;
+  safety_kit_present?: boolean;
+  brakes_checked?: boolean;
+  odometer_start_km?: number;
+}
+
+export interface DriverDutyEndPayload {
+  latitude?: number;
+  longitude?: number;
+  waste_disposed_at_depot?: boolean;
+  odometer_end_km?: number;
+  vehicle_condition_notes?: string;
+}
+
+export interface DriverUpdatePayload {
+  full_name?: string | null;
+  status?: UserStatus;
+  ward_id?: string | null;
+  vehicle_id?: string | null;
+}
+
+export interface DriverLocationPingPayload {
+  latitude: number;
+  longitude: number;
+  speed_kmh?: number | null;
+  heading?: number | null;
+  accuracy_meters?: number | null;
+  recorded_at?: string;
+}
+
+export interface DriverLocationPingResponse {
+  success: boolean;
+  vehicle_id: string;
+  latitude: number;
+  longitude: number;
+  recorded_at: string;
+  received_at: string;
+  accuracy_meters?: number | null;
+  message: string;
+}
+
+export interface DriverMeResponse {
+  driver: DriverSummary;
+  assigned_vehicle?: DriverAssignedVehicle | null;
+  assigned_ward?: { id: string; ward_code: string; display_name: string } | null;
+  assigned_route?: { id: string; name: string; route_code?: string; is_active: boolean } | null;
+  duty_status: string;
+  duty_start_time?: string | null;
 }
 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ArrowRight,
+  Bell,
   CalendarCheck,
   Check,
   CheckCircle2,
@@ -34,17 +36,65 @@ import {
   WorkerAssignment,
   AttendanceCheckInResponse,
 } from '../../api/attendance';
+import {
+  fetchWorkerSchedule,
+  fetchWorkerRoute,
+  fetchWorkerAttendanceHistory,
+  WorkerScheduleResponse,
+  WorkerRouteResponse,
+} from '../../api/worker';
+import {
+  fetchNotifications,
+  fetchUnreadCount,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  NotificationItem,
+} from '../../api/notifications';
 import type { User as UserType } from '../../types';
 import '../../styles/citizen-dashboard.css';
 
-export type WorkerTab = 'dashboard' | 'attendance' | 'tasks' | 'vehicle' | 'profile';
+export type WorkerTab =
+  | 'dashboard'
+  | 'schedule'
+  | 'route'
+  | 'history'
+  | 'notifications'
+  | 'profile'
+  | 'attendance'
+  | 'tasks'
+  | 'vehicle';
 
 export const WorkerDashboard: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
   const [assignment, setAssignment] = useState<WorkerAssignment | null>(null);
   const [todayRecord, setTodayRecord] = useState<AttendanceDailyItem | null>(null);
+  const [scheduleData, setScheduleData] = useState<WorkerScheduleResponse | null>(null);
+  const [routeData, setRouteData] = useState<WorkerRouteResponse | null>(null);
+  const [historyRecords, setHistoryRecords] = useState<AttendanceDailyItem[]>([]);
+  const [notificationsList, setNotificationsList] = useState<NotificationItem[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
+  const [isLoadingSubTab, setIsLoadingSubTab] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<WorkerTab>('dashboard');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as WorkerTab | null;
+    const validTabs: WorkerTab[] = [
+      'dashboard',
+      'schedule',
+      'route',
+      'history',
+      'notifications',
+      'profile',
+      'attendance',
+      'tasks',
+      'vehicle',
+    ];
+    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams, activeTab]);
 
   // Modal & OTP state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -132,12 +182,16 @@ export const WorkerDashboard: React.FC = () => {
       const user = await apiClient.get<UserType>('/users/me');
       setCurrentUser(user);
 
-      const [assignRes, attRes] = await Promise.all([
-        getWorkerAssignment(),
-        getWorkerTodayAttendance(),
+      const [assignRes, attRes, schedRes, unreadRes] = await Promise.all([
+        getWorkerAssignment().catch(() => null),
+        getWorkerTodayAttendance().catch(() => null),
+        fetchWorkerSchedule().catch(() => null),
+        fetchUnreadCount().catch(() => 0),
       ]);
       setAssignment(assignRes);
       setTodayRecord(attRes);
+      setScheduleData(schedRes);
+      setUnreadNotificationCount(unreadRes);
     } catch {
       setActionNotice({
         type: 'danger',
@@ -151,6 +205,79 @@ export const WorkerDashboard: React.FC = () => {
   useEffect(() => {
     loadWorkerData();
   }, [loadWorkerData]);
+
+  // Tab content loader
+  useEffect(() => {
+    const loadTabContent = async () => {
+      if (activeTab === 'schedule') {
+        setIsLoadingSubTab(true);
+        try {
+          const res = await fetchWorkerSchedule();
+          setScheduleData(res);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setIsLoadingSubTab(false);
+        }
+      } else if (activeTab === 'route') {
+        setIsLoadingSubTab(true);
+        try {
+          const res = await fetchWorkerRoute();
+          setRouteData(res);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setIsLoadingSubTab(false);
+        }
+      } else if (activeTab === 'history') {
+        setIsLoadingSubTab(true);
+        try {
+          const res = await fetchWorkerAttendanceHistory(30);
+          setHistoryRecords(res);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setIsLoadingSubTab(false);
+        }
+      } else if (activeTab === 'notifications') {
+        setIsLoadingSubTab(true);
+        try {
+          const res = await fetchNotifications('ALL', 50);
+          setNotificationsList(res.items);
+          setUnreadNotificationCount(res.unread_count);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setIsLoadingSubTab(false);
+        }
+      }
+    };
+    loadTabContent();
+  }, [activeTab]);
+
+  const handleMarkNotificationRead = async (id: string) => {
+    try {
+      await markNotificationAsRead(id);
+      setNotificationsList((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n))
+      );
+      setUnreadNotificationCount((prev) => Math.max(0, prev - 1));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      await markAllNotificationsAsRead();
+      setNotificationsList((prev) =>
+        prev.map((n) => ({ ...n, is_read: true, read_at: new Date().toISOString() }))
+      );
+      setUnreadNotificationCount(0);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Step 1: Request Email OTP
   const handleRequestOtp = async () => {
@@ -203,6 +330,7 @@ export const WorkerDashboard: React.FC = () => {
 
       let lat: number;
       let lon: number;
+      let acc: number | undefined;
 
       try {
         const position = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -214,6 +342,7 @@ export const WorkerDashboard: React.FC = () => {
         });
         lat = position.coords.latitude;
         lon = position.coords.longitude;
+        acc = position.coords.accuracy;
       } catch (geoErr: any) {
         let msg = 'Could not retrieve your GPS location. Please ensure location services are enabled.';
         if (geoErr && typeof geoErr === 'object' && geoErr.code === 1) {
@@ -231,6 +360,7 @@ export const WorkerDashboard: React.FC = () => {
         challengeId,
         latitude: lat,
         longitude: lon,
+        accuracy_meters: acc,
         wardId: assignment?.ward_id,
         musterPointId: assignment?.muster_point_id,
       });
@@ -276,12 +406,14 @@ export const WorkerDashboard: React.FC = () => {
 
       let lat: number;
       let lon: number;
+      let acc: number | undefined;
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
           navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
         });
         lat = pos.coords.latitude;
         lon = pos.coords.longitude;
+        acc = pos.coords.accuracy;
       } catch (geoErr: any) {
         let msg = 'Could not determine GPS coordinates for check-out. Please enable location services.';
         if (geoErr && typeof geoErr === 'object' && geoErr.code === 1) {
@@ -295,6 +427,7 @@ export const WorkerDashboard: React.FC = () => {
       const res = await submitCheckOut({
         latitude: lat,
         longitude: lon,
+        accuracy_meters: acc,
         wardId: assignment?.ward_id,
         musterPointId: assignment?.muster_point_id,
       });
@@ -324,11 +457,13 @@ export const WorkerDashboard: React.FC = () => {
         role="worker"
         activeTab={activeTab}
         onTabChange={(tab) => {
-          if (['dashboard', 'attendance', 'tasks', 'vehicle', 'profile'].includes(tab)) {
-            setActiveTab(tab as WorkerTab);
+          if (['dashboard', 'schedule', 'route', 'history', 'notifications', 'profile', 'attendance', 'tasks', 'vehicle'].includes(tab)) {
+            const nextTab = tab as WorkerTab;
+            setActiveTab(nextTab);
+            setSearchParams({ tab: nextTab });
           }
         }}
-        notificationCount={isCheckedIn ? 0 : 1}
+        notificationCount={unreadNotificationCount}
       />
 
       {/* Main Content Area */}
@@ -340,14 +475,22 @@ export const WorkerDashboard: React.FC = () => {
           />
 
           <div className="nc-dashboard-band-inner">
-            <CitizenBanner
-              user={currentUser}
-              isLoading={isLoading}
-              titlePrefix="Welcome Back"
-              subtitle="Your daily assignment, muster roll-call, and shift attendance in one place."
-              roleBadge={currentUser?.role === 'DRIVER' ? 'Collection Driver' : 'Pourakarmika'}
-              showBirds={false}
-            />
+            {(() => {
+              const hour = new Date().getHours();
+              const greetingPrefix = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+              const firstName = currentUser?.full_name ? currentUser.full_name.trim().split(' ')[0] : 'Pourakarmika';
+              return (
+                <CitizenBanner
+                  user={currentUser}
+                  userName={firstName}
+                  isLoading={isLoading}
+                  titlePrefix={greetingPrefix}
+                  subtitle="Your daily assignment, muster roll-call, and shift attendance in one place."
+                  roleBadge={currentUser?.role === 'DRIVER' ? 'Collection Driver' : 'Pourakarmika'}
+                  showBirds={false}
+                />
+              );
+            })()}
 
             {/* 4 Daily Summary Cards matching civic design system */}
             <div className="nc-summary-overview" aria-label="Pourakarmika daily metrics">
@@ -355,10 +498,13 @@ export const WorkerDashboard: React.FC = () => {
                 {/* 1. Today's Assignment */}
                 <article
                   className="nc-summary-card is-clickable"
-                  onClick={() => setActiveTab('tasks')}
+                  onClick={() => {
+                    setActiveTab('schedule');
+                    setSearchParams({ tab: 'schedule' });
+                  }}
                   role="button"
                   tabIndex={0}
-                  title="Click to view muster depot & tasks"
+                  title="Click to view muster depot & shift schedule"
                 >
                   <span className="nc-summary-icon">
                     <MapPin size={20} strokeWidth={2.2} aria-hidden="true" />
@@ -379,10 +525,13 @@ export const WorkerDashboard: React.FC = () => {
                 {/* 2. Attendance Status */}
                 <article
                   className="nc-summary-card is-clickable"
-                  onClick={() => setActiveTab('attendance')}
+                  onClick={() => {
+                    setActiveTab('history');
+                    setSearchParams({ tab: 'history' });
+                  }}
                   role="button"
                   tabIndex={0}
-                  title="Click to open shift attendance portal"
+                  title="Click to open attendance history"
                 >
                   <span className="nc-summary-icon">
                     <CalendarCheck size={20} strokeWidth={2.2} aria-hidden="true" />
@@ -415,55 +564,62 @@ export const WorkerDashboard: React.FC = () => {
                   </span>
                 </article>
 
-                {/* 3. Assigned Vehicle */}
+                {/* 3. Scheduled Shift Hours */}
                 <article
                   className="nc-summary-card is-clickable"
-                  onClick={() => setActiveTab('vehicle')}
+                  onClick={() => {
+                    setActiveTab('schedule');
+                    setSearchParams({ tab: 'schedule' });
+                  }}
                   role="button"
                   tabIndex={0}
-                  title="Click to view vehicle & route info"
-                >
-                  <span className="nc-summary-icon">
-                    <Truck size={20} strokeWidth={2.2} aria-hidden="true" />
-                  </span>
-                  <span className="nc-summary-copy">
-                    <strong>
-                      {currentUser?.role === 'DRIVER' ? 'KA-04-TR' : 'Auto Tipper'}
-                    </strong>
-                    <span className="nc-summary-label">Assigned Vehicle</span>
-                    <span className="nc-summary-note" style={{ color: '#2E7D32' }}>
-                      Ward Fleet Unit →
-                    </span>
-                  </span>
-                </article>
-
-                {/* 4. Shift Time */}
-                <article
-                  className="nc-summary-card is-clickable"
-                  onClick={() => setActiveTab('attendance')}
-                  role="button"
-                  tabIndex={0}
-                  title="Click to view shift timing details"
+                  title="Click to view weekly schedule"
                 >
                   <span className="nc-summary-icon">
                     <Clock size={20} strokeWidth={2.2} aria-hidden="true" />
                   </span>
                   <span className="nc-summary-copy">
                     <strong>
-                      {todayRecord?.check_in_at
-                        ? new Date(todayRecord.check_in_at).toLocaleTimeString('en-IN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                      {scheduleData?.shift_start_time
+                        ? `${scheduleData.shift_start_time} - ${scheduleData.shift_end_time}`
+                        : '07:00 - 14:00'}
+                    </strong>
+                    <span className="nc-summary-label">Today's Shift Hours</span>
+                    <span className="nc-summary-note" style={{ color: '#2E7D32' }}>
+                      {scheduleData?.today_is_workday !== false ? 'Scheduled Workday' : 'Day Off'} →
+                    </span>
+                  </span>
+                </article>
+
+                {/* 4. Duration Worked */}
+                <article
+                  className="nc-summary-card is-clickable"
+                  onClick={() => {
+                    setActiveTab('history');
+                    setSearchParams({ tab: 'history' });
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  title="Click to view work duration details"
+                >
+                  <span className="nc-summary-icon">
+                    <CalendarCheck size={20} strokeWidth={2.2} aria-hidden="true" />
+                  </span>
+                  <span className="nc-summary-copy">
+                    <strong>
+                      {todayRecord?.duration_minutes !== null && todayRecord?.duration_minutes !== undefined
+                        ? `${Math.floor(todayRecord.duration_minutes / 60)}h ${todayRecord.duration_minutes % 60}m`
+                        : isCheckedIn
+                        ? 'On Duty'
                         : '—'}
                     </strong>
-                    <span className="nc-summary-label">Check-In Time</span>
+                    <span className="nc-summary-label">Duration Worked</span>
                     <span className="nc-summary-note" style={{ color: '#2E7D32' }}>
                       {isCheckedOut
                         ? 'Shift Completed'
                         : isCheckedIn
-                        ? '● Shift Active'
-                        : 'Roll-Call Ready'}
+                        ? '● In Progress'
+                        : 'Shift Not Started'}
                     </span>
                   </span>
                 </article>
@@ -490,7 +646,7 @@ export const WorkerDashboard: React.FC = () => {
               {/* TAB 1: FIELD OVERVIEW */}
               {activeTab === 'dashboard' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {/* Attendance Callout Action Box */}
+                  {/* Enhanced Mobile-First Shift Status Card */}
                   <div
                     style={{
                       backgroundColor: '#FFFFFF',
@@ -499,92 +655,188 @@ export const WorkerDashboard: React.FC = () => {
                       border: '1px solid #D5E3D7',
                       boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '1.5rem',
-                      flexWrap: 'wrap',
+                      flexDirection: 'column',
+                      gap: '1.25rem',
                     }}
                   >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                        <span
-                          style={{
-                            padding: '3px 10px',
-                            borderRadius: '999px',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            backgroundColor: isCheckedIn ? '#D1FAE5' : '#FEF3C7',
-                            color: isCheckedIn ? '#065F46' : '#92400E',
-                          }}
-                        >
-                          {isCheckedOut ? 'Shift Done' : isCheckedIn ? 'Shift In Progress' : 'Action Required'}
-                        </span>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 750, color: '#183B2A' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          <span
+                            style={{
+                              padding: '4px 12px',
+                              borderRadius: '999px',
+                              fontSize: '0.8rem',
+                              fontWeight: 750,
+                              backgroundColor: isCheckedOut
+                                ? '#D1FAE5'
+                                : isCheckedIn
+                                ? todayRecord?.status === 'PRESENT'
+                                  ? '#D1FAE5'
+                                  : '#FEF3C7'
+                                : scheduleData?.window_status === 'ON_TIME'
+                                ? '#DCFCE7'
+                                : scheduleData?.window_status === 'GRACE'
+                                ? '#FEF3C7'
+                                : scheduleData?.window_status === 'LATE_EXCEPTION'
+                                ? '#FEE2E2'
+                                : '#F1F5F9',
+                              color: isCheckedOut
+                                ? '#065F46'
+                                : isCheckedIn
+                                ? todayRecord?.status === 'PRESENT'
+                                  ? '#065F46'
+                                  : '#92400E'
+                                : scheduleData?.window_status === 'ON_TIME'
+                                ? '#15803D'
+                                : scheduleData?.window_status === 'GRACE'
+                                ? '#B45309'
+                                : scheduleData?.window_status === 'LATE_EXCEPTION'
+                                ? '#B91C1C'
+                                : '#475569',
+                            }}
+                          >
+                            {isCheckedOut
+                              ? 'Shift Completed'
+                              : isCheckedIn
+                              ? todayRecord?.status === 'PRESENT'
+                                ? 'On Duty (Verified)'
+                                : 'Exception Review Pending'
+                              : scheduleData?.window_status === 'ON_TIME'
+                              ? 'Check-In Open (On-Time)'
+                              : scheduleData?.window_status === 'GRACE'
+                              ? 'Grace Period Active (+15m)'
+                              : scheduleData?.window_status === 'LATE_EXCEPTION'
+                              ? 'Window Expired (Late Exception)'
+                              : scheduleData?.window_status === 'NOT_OPEN'
+                              ? 'Window Not Open'
+                              : 'Shift Closed'}
+                          </span>
+                          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#183B2A' }}>
+                            {isCheckedOut
+                              ? 'Today’s Shift Concluded'
+                              : isCheckedIn
+                              ? 'You are Active on Field Duty'
+                              : 'Daily Muster Roll-Call Check-In'}
+                          </h3>
+                        </div>
+                        <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: '#5A7565' }}>
                           {isCheckedOut
-                            ? 'Today’s Shift Completed'
+                            ? `Shift successfully recorded. Total duration worked: ${Math.floor((todayRecord?.duration_minutes || 0) / 60)}h ${(todayRecord?.duration_minutes || 0) % 60}m.`
                             : isCheckedIn
-                            ? 'You are Checked In & On Duty'
-                            : 'Daily Roll-Call Check-In'}
-                        </h3>
+                            ? `Checked in at ${new Date(todayRecord?.check_in_at || '').toLocaleTimeString()} at ${assignment?.muster_point_name || 'Assigned Depot'}.`
+                            : scheduleData?.window_message || 'Verify presence at assigned muster depot via Email OTP and GPS coordinates.'}
+                        </p>
                       </div>
-                      <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: '#5A7565' }}>
-                        {isCheckedOut
-                          ? 'Thank you for your civic contribution today. Check-out was recorded successfully.'
-                          : isCheckedIn
-                          ? `Checked in at ${new Date(todayRecord?.check_in_at || '').toLocaleTimeString()} at ${assignment?.muster_point_name || 'Muster Depot'}.`
-                          : 'Verify your presence at your assigned depot using 6-digit Email OTP and GPS coordinates.'}
-                      </p>
+
+                      {/* Large Touch Action Buttons (>= 48px target) */}
+                      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        {!isCheckedIn ? (
+                          <Button
+                            type="button"
+                            variant="primary"
+                            onClick={openAttendanceModal}
+                            style={{
+                              minHeight: '48px',
+                              minWidth: '48px',
+                              padding: '12px 24px',
+                              fontSize: '0.95rem',
+                              fontWeight: 700,
+                              boxShadow: '0 4px 14px rgba(6,95,70,0.25)',
+                            }}
+                          >
+                            <ShieldCheck size={20} />
+                            <span>Mark Attendance (Email OTP & GPS)</span>
+                          </Button>
+                        ) : !isCheckedOut ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleCheckOut}
+                            disabled={isCheckingOut}
+                            style={{
+                              minHeight: '48px',
+                              minWidth: '48px',
+                              padding: '12px 24px',
+                              fontSize: '0.95rem',
+                              fontWeight: 700,
+                              borderColor: '#DC2626',
+                              color: '#DC2626',
+                            }}
+                          >
+                            {isCheckingOut ? (
+                              <>
+                                <Spinner size="sm" />
+                                <span style={{ marginLeft: '0.4rem' }}>Recording Check-Out...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock size={20} />
+                                <span>Record Shift Check-Out</span>
+                              </>
+                            )}
+                          </Button>
+                        ) : (
+                          <div
+                            style={{
+                              minHeight: '48px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              padding: '10px 20px',
+                              borderRadius: '12px',
+                              backgroundColor: '#E8F5E9',
+                              color: '#2E7D32',
+                              fontWeight: 800,
+                              fontSize: '0.95rem',
+                            }}
+                          >
+                            <CheckCircle2 size={20} />
+                            <span>
+                              Shift Concluded — Duration: {Math.floor((todayRecord?.duration_minutes || 0) / 60)}h{' '}
+                              {(todayRecord?.duration_minutes || 0) % 60}m
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                      {!isCheckedIn ? (
-                        <Button
-                          type="button"
-                          variant="primary"
-                          onClick={openAttendanceModal}
-                          style={{ padding: '0.75rem 1.4rem', fontSize: '0.95rem' }}
-                        >
-                          <ShieldCheck size={18} />
-                          <span>Mark Daily Attendance (Email OTP)</span>
-                        </Button>
-                      ) : !isCheckedOut ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={handleCheckOut}
-                          disabled={isCheckingOut}
-                          style={{ padding: '0.75rem 1.4rem', fontSize: '0.95rem', borderColor: '#DC2626', color: '#DC2626' }}
-                        >
-                          {isCheckingOut ? (
-                            <>
-                              <Spinner size="sm" />
-                              <span style={{ marginLeft: '0.4rem' }}>Recording Check-Out...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Clock size={18} />
-                              <span>Record Shift Check-Out</span>
-                            </>
-                          )}
-                        </Button>
-                      ) : (
-                        <div
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                            padding: '0.65rem 1.25rem',
-                            borderRadius: '10px',
-                            backgroundColor: '#E8F5E9',
-                            color: '#2E7D32',
-                            fontWeight: 700,
-                            fontSize: '0.9rem',
-                          }}
-                        >
-                          <CheckCircle2 size={18} />
-                          <span>Shift Concluded</span>
-                        </div>
-                      )}
+                    {/* Shift & Window Timing Grid */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                        gap: '1rem',
+                        backgroundColor: '#F8FAFC',
+                        padding: '1rem 1.25rem',
+                        borderRadius: '12px',
+                        fontSize: '0.86rem',
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: '#64748B', fontWeight: 600 }}>Shift Hours</div>
+                        <strong style={{ color: '#1E293B', fontSize: '0.95rem' }}>
+                          {scheduleData?.shift_start_time || '07:00'} – {scheduleData?.shift_end_time || '14:00'}
+                        </strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#64748B', fontWeight: 600 }}>Check-In Window</div>
+                        <strong style={{ color: '#1E293B', fontSize: '0.95rem' }}>
+                          {scheduleData?.check_in_start_time || '06:45'} – {scheduleData?.check_in_end_time || '07:30'}
+                        </strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#64748B', fontWeight: 600 }}>Grace Period</div>
+                        <strong style={{ color: '#1E293B', fontSize: '0.95rem' }}>
+                          +{scheduleData?.grace_period_minutes ?? 15} minutes
+                        </strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#64748B', fontWeight: 600 }}>Assigned Route</div>
+                        <strong style={{ color: '#0369A1', fontSize: '0.95rem' }}>
+                          {scheduleData?.route_name || assignment?.ward_name || 'Ward General'}
+                        </strong>
+                      </div>
                     </div>
                   </div>
 
@@ -629,7 +881,7 @@ export const WorkerDashboard: React.FC = () => {
                             Assigned Muster Station
                           </h4>
                           <div style={{ fontSize: '0.78rem', color: '#5A7565' }}>
-                            BBMP Ward 04 — Yelahanka
+                            {assignment?.ward_name ? `BBMP Ward — ${assignment.ward_name}` : 'Ward Depot'}
                           </div>
                         </div>
                       </div>
@@ -637,7 +889,7 @@ export const WorkerDashboard: React.FC = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', backgroundColor: '#F8FAFC', padding: '1rem', borderRadius: '12px', fontSize: '0.88rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#64748B' }}>Depot Name:</span>
-                          <strong style={{ color: '#1E293B' }}>{assignment?.muster_point_name || 'Yelahanka Satellite Town Muster Depot'}</strong>
+                          <strong style={{ color: '#1E293B' }}>{assignment?.muster_point_name || 'Ward Muster Depot'}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#64748B' }}>Geofence Radius:</span>
@@ -645,17 +897,20 @@ export const WorkerDashboard: React.FC = () => {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#64748B' }}>Assigned Ward:</span>
-                          <strong style={{ color: '#1E293B' }}>{assignment?.ward_name || 'Yelahanka'}</strong>
+                          <strong style={{ color: '#1E293B' }}>{assignment?.ward_name || 'Bengaluru'}</strong>
                         </div>
                       </div>
 
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => setActiveTab('tasks')}
+                        onClick={() => {
+                          setActiveTab('schedule');
+                          setSearchParams({ tab: 'schedule' });
+                        }}
                         style={{ width: '100%', justifyContent: 'center', fontSize: '0.85rem' }}
                       >
-                        <span>View Station Details & Instructions</span>
+                        <span>View Shift Schedule & Overrides</span>
                         <ArrowRight size={15} />
                       </Button>
                     </div>
@@ -690,15 +945,21 @@ export const WorkerDashboard: React.FC = () => {
                         </div>
                         <div>
                           <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 750, color: '#183B2A' }}>
-                            Assigned Fleet Unit & Route
+                            Assigned Route & Fleet
                           </h4>
                           <div style={{ fontSize: '0.78rem', color: '#5A7565' }}>
-                            Daily Collection Protocol
+                            Daily Waste Collection Route
                           </div>
                         </div>
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', backgroundColor: '#F8FAFC', padding: '1rem', borderRadius: '12px', fontSize: '0.88rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#64748B' }}>Route Code:</span>
+                          <strong style={{ color: '#1E293B' }}>
+                            {scheduleData?.route_name || (assignment?.ward_name ? `${assignment.ward_name} Collection Route` : 'Ward General Route')}
+                          </strong>
+                        </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#64748B' }}>Vehicle Type:</span>
                           <strong style={{ color: '#1E293B' }}>
@@ -706,15 +967,9 @@ export const WorkerDashboard: React.FC = () => {
                           </strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#64748B' }}>Registration:</span>
-                          <strong style={{ color: '#1E293B' }}>
-                            {currentUser?.role === 'DRIVER' ? 'KA-04-TR-1082' : 'KA-04-AT-0914'}
-                          </strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#64748B' }}>Route Code:</span>
-                          <strong style={{ color: '#1E293B' }}>
-                            {assignment?.ward_name ? `${assignment.ward_name} Route 01` : 'Yelahanka Route 01'}
+                          <span style={{ color: '#64748B' }}>Shift Turnout:</span>
+                          <strong style={{ color: isCheckedIn ? '#059669' : '#D97706' }}>
+                            {isCheckedIn ? 'Checked In' : 'Pending Roll-Call'}
                           </strong>
                         </div>
                       </div>
@@ -722,10 +977,13 @@ export const WorkerDashboard: React.FC = () => {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => setActiveTab('vehicle')}
+                        onClick={() => {
+                          setActiveTab('route');
+                          setSearchParams({ tab: 'route' });
+                        }}
                         style={{ width: '100%', justifyContent: 'center', fontSize: '0.85rem' }}
                       >
-                        <span>Inspect Route on Live Map</span>
+                        <span>Inspect Route Map & Stops</span>
                         <ArrowRight size={15} />
                       </Button>
                     </div>
@@ -733,8 +991,8 @@ export const WorkerDashboard: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 2: ATTENDANCE PORTAL */}
-              {activeTab === 'attendance' && (
+              {/* TAB 2: MY SCHEDULE */}
+              {activeTab === 'schedule' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   <div
                     style={{
@@ -750,260 +1008,201 @@ export const WorkerDashboard: React.FC = () => {
                     }}
                   >
                     <div>
-                      <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 750, color: '#183B2A' }}>
-                        Pourakarmika Roll-Call & Shift Attendance
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 750, color: '#183B2A' }}>
+                        Weekly Recurring Schedule & Shift Rules
                       </h3>
                       <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#5A7565' }}>
-                        Cryptographic OTP and geofence verification for authentic field presence.
+                        Enforced muster depot roll-call timetable and approved schedule overrides.
                       </p>
                     </div>
-
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={loadWorkerData}
+                      onClick={() => fetchWorkerSchedule().then(setScheduleData)}
                       style={{ fontSize: '0.82rem', padding: '6px 12px' }}
                     >
                       <RefreshCw size={14} />
-                      <span>Refresh Status</span>
+                      <span>Refresh Schedule</span>
                     </Button>
                   </div>
 
-                  {/* Attendance Verification Box */}
-                  <div
-                    style={{
-                      backgroundColor: '#FFFFFF',
-                      borderRadius: '16px',
-                      border: '1px solid #D5E3D7',
-                      padding: '1.75rem',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '1.25rem',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div
-                          style={{
-                            width: '46px',
-                            height: '46px',
-                            borderRadius: '12px',
-                            backgroundColor: isCheckedIn ? '#D1FAE5' : '#FEF3C7',
-                            color: isCheckedIn ? '#065F46' : '#92400E',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <CalendarCheck size={24} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
-                            Today's Verification Status
-                          </div>
-                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1E293B', marginTop: '2px' }}>
-                            {isCheckedIn
-                              ? todayRecord?.status === 'PRESENT'
-                                ? 'Present & Verified on Duty'
-                                : 'Exception Flagged (Pending Review)'
-                              : 'Not Checked In for Roll-Call'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <span
+                  {isLoadingSubTab ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                      <Spinner size="md" />
+                    </div>
+                  ) : (
+                    <>
+                      {/* Active Recurring Schedule Details */}
+                      <div
                         style={{
-                          padding: '6px 14px',
-                          borderRadius: '999px',
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          backgroundColor: isCheckedIn ? (todayRecord?.status === 'PRESENT' ? '#D1FAE5' : '#FEF3C7') : '#FEE2E2',
-                          color: isCheckedIn ? (todayRecord?.status === 'PRESENT' ? '#065F46' : '#92400E') : '#DC2626',
+                          backgroundColor: '#FFFFFF',
+                          borderRadius: '16px',
+                          border: '1px solid #D5E3D7',
+                          padding: '1.5rem',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '1.25rem',
                         }}
                       >
-                        {isCheckedIn ? todayRecord?.status : 'PENDING'}
-                      </span>
-                    </div>
+                        <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 750, color: '#183B2A' }}>
+                          Standard Recurring Weekly Timetable
+                        </h4>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', backgroundColor: '#F8FAFC', padding: '1.25rem', borderRadius: '12px' }}>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Check-In Timestamp</div>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 750, color: '#1E293B', marginTop: '3px' }}>
-                          {todayRecord?.check_in_at
-                            ? new Date(todayRecord.check_in_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                            : '—'}
+                        {/* Working Days */}
+                        <div>
+                          <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 600, marginBottom: '0.5rem' }}>
+                            Active Working Days (Weekly Duty)
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {[
+                              { day: 1, label: 'Mon' },
+                              { day: 2, label: 'Tue' },
+                              { day: 3, label: 'Wed' },
+                              { day: 4, label: 'Thu' },
+                              { day: 5, label: 'Fri' },
+                              { day: 6, label: 'Sat' },
+                              { day: 7, label: 'Sun' },
+                            ].map(({ day, label }) => {
+                              const isActive = (scheduleData?.days_of_week || [1, 2, 3, 4, 5, 6]).includes(day);
+                              return (
+                                <span
+                                  key={day}
+                                  style={{
+                                    padding: '6px 14px',
+                                    borderRadius: '8px',
+                                    fontSize: '0.84rem',
+                                    fontWeight: 700,
+                                    backgroundColor: isActive ? '#ECFDF5' : '#F1F5F9',
+                                    color: isActive ? '#065F46' : '#94A3B8',
+                                    border: isActive ? '1px solid #A7F3D0' : '1px solid #E2E8F0',
+                                  }}
+                                >
+                                  {label} {isActive ? '✓' : '—'}
+                                </span>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
 
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Check-Out Timestamp</div>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 750, color: '#1E293B', marginTop: '3px' }}>
-                          {todayRecord?.check_out_at
-                            ? new Date(todayRecord.check_out_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                            : '—'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Muster Distance</div>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 750, color: '#1E293B', marginTop: '3px' }}>
-                          {todayRecord?.check_in_distance_meters !== null && todayRecord?.check_in_distance_meters !== undefined
-                            ? `${Math.round(todayRecord.check_in_distance_meters)} meters`
-                            : '—'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Geofence Check</div>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 750, color: isCheckedIn ? (todayRecord?.status === 'PRESENT' ? '#2E7D32' : '#D97706') : '#64748B', marginTop: '3px' }}>
-                          {isCheckedIn
-                            ? todayRecord?.status === 'PRESENT'
-                              ? 'Within 150m Depot'
-                              : 'Beyond Geofence Radius'
-                            : 'Pending Verification'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', paddingTop: '0.5rem' }}>
-                      {!isCheckedIn ? (
-                        <Button
-                          type="button"
-                          variant="primary"
-                          onClick={openAttendanceModal}
-                          style={{ padding: '0.85rem 1.6rem', fontSize: '0.95rem' }}
-                        >
-                          <ShieldCheck size={18} />
-                          <span>Mark Daily Attendance (Email OTP)</span>
-                        </Button>
-                      ) : !isCheckedOut ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={handleCheckOut}
-                          disabled={isCheckingOut}
-                          style={{ padding: '0.85rem 1.6rem', fontSize: '0.95rem', borderColor: '#DC2626', color: '#DC2626' }}
-                        >
-                          {isCheckingOut ? (
-                            <>
-                              <Spinner size="sm" />
-                              <span style={{ marginLeft: '0.4rem' }}>Recording Check-Out...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Clock size={18} />
-                              <span>Record Shift Check-Out</span>
-                            </>
-                          )}
-                        </Button>
-                      ) : (
+                        {/* Schedule Metric Grid */}
                         <div
                           style={{
-                            padding: '0.85rem 1.6rem',
-                            borderRadius: '10px',
-                            backgroundColor: '#E8F5E9',
-                            color: '#2E7D32',
-                            fontWeight: 700,
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '1rem',
+                            backgroundColor: '#F8FAFC',
+                            padding: '1.25rem',
+                            borderRadius: '12px',
                           }}
                         >
-                          ✓ Daily attendance and shift check-out completed
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600 }}>Shift Start – End</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1E293B', marginTop: '2px' }}>
+                              {scheduleData?.shift_start_time || '07:00'} – {scheduleData?.shift_end_time || '14:00'}
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: '#059669', marginTop: '2px' }}>Official daily working hours</div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600 }}>Check-In Window</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1E293B', marginTop: '2px' }}>
+                              {scheduleData?.check_in_start_time || '06:45'} – {scheduleData?.check_in_end_time || '07:30'}
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: '#0369A1', marginTop: '2px' }}>
+                              Grace: +{scheduleData?.grace_period_minutes ?? 15} mins
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600 }}>Muster Point Geofence</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1E293B', marginTop: '2px' }}>
+                              150 meters
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>Strict GPS verification radius</div>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
+
+                      {/* Upcoming Schedule Overrides Table */}
+                      <div
+                        style={{
+                          backgroundColor: '#FFFFFF',
+                          borderRadius: '16px',
+                          border: '1px solid #D5E3D7',
+                          padding: '1.5rem',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <h4 style={{ margin: '0 0 1rem', fontSize: '1.05rem', fontWeight: 750, color: '#183B2A' }}>
+                          Approved Date-Specific Schedule Overrides
+                        </h4>
+
+                        {!scheduleData?.upcoming_overrides || scheduleData.upcoming_overrides.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '2rem', color: '#64748B', fontSize: '0.9rem' }}>
+                            No date-specific overrides recorded. Standard weekly recurring schedule applies.
+                          </div>
+                        ) : (
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569' }}>
+                                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Date</th>
+                                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Override Type</th>
+                                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Justification / Reason</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {scheduleData.upcoming_overrides.map((ov, idx) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                                    <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#1E293B' }}>
+                                      {ov.override_date}
+                                    </td>
+                                    <td style={{ padding: '0.75rem 1rem' }}>
+                                      <span
+                                        style={{
+                                          padding: '2px 8px',
+                                          borderRadius: '999px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          backgroundColor:
+                                            ov.override_type === 'DAY_OFF'
+                                              ? '#E0F2FE'
+                                              : ov.override_type === 'HOLIDAY'
+                                              ? '#FEF3C7'
+                                              : ov.override_type === 'LEAVE'
+                                              ? '#FEE2E2'
+                                              : '#ECFDF5',
+                                          color:
+                                            ov.override_type === 'DAY_OFF'
+                                              ? '#0369A1'
+                                              : ov.override_type === 'HOLIDAY'
+                                              ? '#92400E'
+                                              : ov.override_type === 'LEAVE'
+                                              ? '#B91C1C'
+                                              : '#065F46',
+                                        }}
+                                      >
+                                        {ov.override_type}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '0.75rem 1rem', color: '#4B5563' }}>
+                                      {ov.reason || 'Supervisor authorized override'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
-              {/* TAB 3: TASKS & MUSTER DEPOT */}
-              {activeTab === 'tasks' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <div
-                    style={{
-                      backgroundColor: '#FFFFFF',
-                      padding: '1.25rem 1.5rem',
-                      borderRadius: '14px',
-                      border: '1px solid #D5E3D7',
-                    }}
-                  >
-                    <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 750, color: '#183B2A' }}>
-                      Daily Muster Station & Operational Tasks
-                    </h3>
-                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#5A7565' }}>
-                      Muster point details, shift timetable, and field waste collection duties.
-                    </p>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                      gap: '1.5rem',
-                    }}
-                  >
-                    <div
-                      style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: '16px',
-                        padding: '1.5rem',
-                        border: '1px solid #D5E3D7',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '1rem',
-                      }}
-                    >
-                      <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 750, color: '#183B2A' }}>
-                        Station Geolocation
-                      </h4>
-
-                      <div style={{ backgroundColor: '#F8FAFC', padding: '1rem', borderRadius: '12px', fontSize: '0.88rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                        <div><strong>Depot:</strong> {assignment?.muster_point_name || 'No active muster station'}</div>
-                        <div><strong>Coordinates:</strong> {assignment?.muster_point_name ? '13.0985° N, 77.5895° E' : '—'}</div>
-                        <div><strong>Geofence Radius:</strong> {assignment?.geofence_radius_meters ? `${assignment.geofence_radius_meters} meters` : '—'}</div>
-                        <div><strong>Assigned Ward:</strong> {assignment?.ward_name || 'No ward assigned'}</div>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: '16px',
-                        padding: '1.5rem',
-                        border: '1px solid #D5E3D7',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '1rem',
-                      }}
-                    >
-                      <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 750, color: '#183B2A' }}>
-                        Daily Shift Timetable
-                      </h4>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.88rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                          <span style={{ padding: '3px 8px', borderRadius: '6px', backgroundColor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.78rem' }}>06:30 AM</span>
-                          <span>Depot roll-call check-in & tool allotment</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                          <span style={{ padding: '3px 8px', borderRadius: '6px', backgroundColor: '#E0F2FE', color: '#0284C7', fontWeight: 700, fontSize: '0.78rem' }}>07:00 AM</span>
-                          <span>Commence door-to-door segregated waste collection</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                          <span style={{ padding: '3px 8px', borderRadius: '6px', backgroundColor: '#FEF3C7', color: '#D97706', fontWeight: 700, fontSize: '0.78rem' }}>11:30 AM</span>
-                          <span>Transfer station tipping & secondary segregation</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                          <span style={{ padding: '3px 8px', borderRadius: '6px', backgroundColor: '#F3E8FF', color: '#7E22CE', fontWeight: 700, fontSize: '0.78rem' }}>02:30 PM</span>
-                          <span>Return to muster depot & record shift check-out</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: VEHICLE & ROUTE */}
-              {activeTab === 'vehicle' && (
+              {/* TAB 3: MY ROUTE */}
+              {activeTab === 'route' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div
                     style={{
@@ -1019,36 +1218,396 @@ export const WorkerDashboard: React.FC = () => {
                     }}
                   >
                     <div>
-                      <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 750, color: '#183B2A' }}>
-                        Assigned Collection Route & Fleet Tracker
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 750, color: '#183B2A' }}>
+                        Assigned Waste Collection Route
                       </h3>
                       <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#5A7565' }}>
-                        Vehicle: {currentUser?.role === 'DRIVER' ? 'KA-04-TR-1082' : 'Auto Tipper 02'} | Route: Yelahanka Satellite Town
+                        Route: <strong>{routeData?.route_name || scheduleData?.route_name || 'Ward General Route'}</strong> ({routeData?.ward_name || assignment?.ward_name || 'BBMP Ward'})
                       </p>
                     </div>
 
                     <span
                       style={{
-                        padding: '4px 10px',
+                        padding: '4px 12px',
                         borderRadius: '999px',
                         backgroundColor: '#E8F5E9',
                         color: '#2E7D32',
-                        fontSize: '0.75rem',
+                        fontSize: '0.78rem',
                         fontWeight: 700,
                       }}
                     >
-                      ● Route Active
+                      ● Active Daily Route
                     </span>
                   </div>
 
-                  {/* Embedded Map for route tracking */}
-                  <div style={{ width: '100%', minWidth: 0 }}>
+                  {/* Embedded Route Map */}
+                  <div style={{ width: '100%', minWidth: 0, borderRadius: '16px', overflow: 'hidden' }}>
                     <PublicVehicleMap />
                   </div>
+
+                  {/* Route Stops / Waypoints List */}
+                  {routeData?.stops && routeData.stops.length > 0 && (
+                    <div
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '16px',
+                        border: '1px solid #D5E3D7',
+                        padding: '1.5rem',
+                      }}
+                    >
+                      <h4 style={{ margin: '0 0 1rem', fontSize: '1.05rem', fontWeight: 750, color: '#183B2A' }}>
+                        Scheduled Collection Stops ({routeData.stops.length})
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {routeData.stops.map((stop) => (
+                          <div
+                            key={stop.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '0.75rem 1rem',
+                              backgroundColor: '#F8FAFC',
+                              borderRadius: '10px',
+                              border: '1px solid #E2E8F0',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <span
+                                style={{
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '50%',
+                                  backgroundColor: '#E0F2FE',
+                                  color: '#0369A1',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: 800,
+                                  fontSize: '0.8rem',
+                                }}
+                              >
+                                {stop.sequence_order}
+                              </span>
+                              <span style={{ fontWeight: 600, color: '#1E293B', fontSize: '0.9rem' }}>
+                                {stop.name}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                              {stop.latitude.toFixed(4)}° N, {stop.longitude.toFixed(4)}° E
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* TAB 5: PROFILE */}
+              {/* TAB 4: ATTENDANCE HISTORY */}
+              {activeTab === 'history' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      padding: '1.25rem 1.5rem',
+                      borderRadius: '14px',
+                      border: '1px solid #D5E3D7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '1rem',
+                    }}
+                  >
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 750, color: '#183B2A' }}>
+                        Pourakarmika Attendance History (Past 30 Days)
+                      </h3>
+                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#5A7565' }}>
+                        Official muster check-in, duration worked, and GPS verification audit trail.
+                      </p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fetchWorkerAttendanceHistory(30).then(setHistoryRecords)}
+                      style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+                    >
+                      <RefreshCw size={14} />
+                      <span>Refresh History</span>
+                    </Button>
+                  </div>
+
+                  {isLoadingSubTab ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                      <Spinner size="md" />
+                    </div>
+                  ) : historyRecords.length === 0 ? (
+                    <div
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '16px',
+                        border: '1px solid #D5E3D7',
+                        padding: '3rem 2rem',
+                        textAlign: 'center',
+                        color: '#64748B',
+                      }}
+                    >
+                      <CalendarCheck size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
+                      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#183B2A' }}>
+                        No attendance records recorded yet
+                      </div>
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+                        Your verified daily muster check-ins will appear here with calculated shift duration.
+                      </p>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '16px',
+                        border: '1px solid #D5E3D7',
+                        overflowX: 'auto',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                      }}
+                    >
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569' }}>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Date</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Check-In</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Check-Out</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Duration Worked</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Muster Distance</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: 700, textAlign: 'right' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historyRecords.map((rec) => {
+                            const durHrs = rec.duration_minutes ? Math.floor(rec.duration_minutes / 60) : 0;
+                            const durMins = rec.duration_minutes ? rec.duration_minutes % 60 : 0;
+                            return (
+                              <tr key={rec.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                                <td style={{ padding: '0.85rem 1rem', fontWeight: 700, color: '#1E293B' }}>
+                                  {rec.attendance_date}
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', color: '#4B5563' }}>
+                                  {rec.check_in_at
+                                    ? new Date(rec.check_in_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                                    : '—'}
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', color: '#4B5563' }}>
+                                  {rec.check_out_at
+                                    ? new Date(rec.check_out_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                                    : '—'}
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', color: '#183B2A', fontWeight: 700 }}>
+                                  {rec.duration_minutes !== null && rec.duration_minutes !== undefined ? (
+                                    <span style={{ backgroundColor: '#F0FDF4', padding: '3px 8px', borderRadius: '6px', border: '1px solid #DCFCE7' }}>
+                                      {durHrs}h {durMins}m
+                                    </span>
+                                  ) : rec.check_in_at ? (
+                                    <span style={{ color: '#059669', fontSize: '0.8rem' }}>On Duty</span>
+                                  ) : (
+                                    '—'
+                                  )}
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', color: '#4B5563' }}>
+                                  {rec.check_in_distance_meters !== null && rec.check_in_distance_meters !== undefined
+                                    ? `${Math.round(rec.check_in_distance_meters)}m`
+                                    : '—'}
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
+                                  <span
+                                    style={{
+                                      padding: '3px 8px',
+                                      borderRadius: '999px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      backgroundColor:
+                                        rec.status === 'PRESENT'
+                                          ? '#D1FAE5'
+                                          : rec.status === 'REJECTED'
+                                          ? '#FEE2E2'
+                                          : rec.status === 'EXCEPTION_PENDING'
+                                          ? '#FEF3C7'
+                                          : '#F1F5F9',
+                                      color:
+                                        rec.status === 'PRESENT'
+                                          ? '#065F46'
+                                          : rec.status === 'REJECTED'
+                                          ? '#991B1B'
+                                          : rec.status === 'EXCEPTION_PENDING'
+                                          ? '#92400E'
+                                          : '#475569',
+                                    }}
+                                  >
+                                    {rec.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 5: NOTIFICATIONS */}
+              {activeTab === 'notifications' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      padding: '1.25rem 1.5rem',
+                      borderRadius: '14px',
+                      border: '1px solid #D5E3D7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '1rem',
+                    }}
+                  >
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 750, color: '#183B2A' }}>
+                        Notification Center
+                      </h3>
+                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#5A7565' }}>
+                        Shift assignments, exception alerts, and supervisor review updates.
+                      </p>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleMarkAllNotificationsRead}
+                        style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+                      >
+                        <Check size={14} />
+                        <span>Mark All as Read</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => fetchNotifications('ALL', 50).then((res) => {
+                          setNotificationsList(res.items);
+                          setUnreadNotificationCount(res.unread_count);
+                        })}
+                        style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+                      >
+                        <RefreshCw size={14} />
+                        <span>Refresh</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {isLoadingSubTab ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                      <Spinner size="md" />
+                    </div>
+                  ) : notificationsList.length === 0 ? (
+                    <div
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '16px',
+                        border: '1px solid #D5E3D7',
+                        padding: '3rem 2rem',
+                        textAlign: 'center',
+                        color: '#64748B',
+                      }}
+                    >
+                      <Bell size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
+                      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#183B2A' }}>No notifications</div>
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+                        You're all caught up! New schedule changes and attendance notifications will appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {notificationsList.map((n) => (
+                        <div
+                          key={n.id}
+                          style={{
+                            backgroundColor: n.is_read ? '#FFFFFF' : '#F0FDF4',
+                            border: n.is_read ? '1px solid #E2E8F0' : '1.5px solid #86EFAC',
+                            borderRadius: '14px',
+                            padding: '1.1rem 1.4rem',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '1rem',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                            <div
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '10px',
+                                backgroundColor: n.is_read ? '#F1F5F9' : '#DCFCE7',
+                                color: n.is_read ? '#64748B' : '#15803D',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                marginTop: '2px',
+                              }}
+                            >
+                              <Bell size={18} />
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <h4 style={{ margin: 0, fontSize: '0.96rem', fontWeight: 750, color: '#1E293B' }}>
+                                  {n.title}
+                                </h4>
+                                {!n.is_read && (
+                                  <span
+                                    style={{
+                                      width: '8px',
+                                      height: '8px',
+                                      borderRadius: '50%',
+                                      backgroundColor: '#059669',
+                                    }}
+                                  />
+                                )}
+                              </div>
+                              <p style={{ margin: '0.25rem 0 0', fontSize: '0.86rem', color: '#4B5563', lineHeight: 1.4 }}>
+                                {n.message}
+                              </p>
+                              <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '0.35rem' }}>
+                                {new Date(n.created_at).toLocaleString('en-IN', {
+                                  dateStyle: 'medium',
+                                  timeStyle: 'short',
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          {!n.is_read && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => handleMarkNotificationRead(n.id)}
+                              style={{ fontSize: '0.75rem', padding: '4px 8px', flexShrink: 0 }}
+                            >
+                              Mark Read
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 6: MY PROFILE */}
               {activeTab === 'profile' && (
                 <div style={{ maxWidth: '640px', margin: '0 auto', width: '100%' }}>
                   <div
@@ -1097,7 +1656,7 @@ export const WorkerDashboard: React.FC = () => {
                               textTransform: 'uppercase',
                             }}
                           >
-                            {currentUser?.role === 'DRIVER' ? 'Collection Driver' : 'Sanitation Worker'}
+                            {currentUser?.role === 'DRIVER' ? 'Collection Driver' : 'Sanitation Worker (Pourakarmika)'}
                           </span>
                           <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
                             Ward: {assignment?.ward_name || 'No ward assigned'}
@@ -1107,6 +1666,12 @@ export const WorkerDashboard: React.FC = () => {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', backgroundColor: '#F8FAFC', padding: '1.25rem', borderRadius: '12px', fontSize: '0.9rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#64748B' }}>Official Staff ID:</span>
+                        <strong style={{ color: currentUser?.official_id ? '#0369A1' : '#92400E' }}>
+                          {currentUser?.official_id || 'BBMP-SW-042'}
+                        </strong>
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: '#64748B' }}>Official Email:</span>
                         <strong style={{ color: '#1E293B' }}>{currentUser?.email}</strong>
@@ -1120,8 +1685,8 @@ export const WorkerDashboard: React.FC = () => {
                         <strong style={{ color: '#059669' }}>ACTIVE</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: '#64748B' }}>Assigned Muster Station:</span>
-                        <strong style={{ color: '#1E293B' }}>{assignment?.muster_point_name || 'No active muster station'}</strong>
+                        <span style={{ color: '#64748B' }}>Assigned Muster Depot:</span>
+                        <strong style={{ color: '#1E293B' }}>{assignment?.muster_point_name || 'Yelahanka Satellite Town Depot'}</strong>
                       </div>
                     </div>
                   </div>

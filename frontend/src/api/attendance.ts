@@ -5,6 +5,7 @@ export interface AttendanceOtpIssueResponse {
   expires_in_seconds: number;
   worker_email: string;
   message: string;
+  delivery_status?: string | null;
   dev_otp?: string | null;
 }
 
@@ -39,6 +40,7 @@ export interface AttendanceCheckOutResponse {
   status: string;
   distance_meters: number | null;
   is_within_geofence: boolean;
+  duration_minutes?: number | null;
   exception_reason: string | null;
   message: string;
 }
@@ -47,6 +49,8 @@ export interface AttendanceDailyItem {
   id: string;
   worker_id: string;
   worker_email: string | null;
+  worker_name?: string | null;
+  official_id?: string | null;
   ward_id: string;
   muster_point_id: string | null;
   muster_point_name: string | null;
@@ -54,8 +58,11 @@ export interface AttendanceDailyItem {
   check_in_at: string | null;
   check_out_at: string | null;
   status: string;
+  duration_minutes?: number | null;
   check_in_distance_meters: number | null;
   check_out_distance_meters: number | null;
+  check_in_accuracy_meters?: number | null;
+  check_out_accuracy_meters?: number | null;
   exception_reason: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
@@ -131,6 +138,7 @@ export async function submitOtpAttendance(params: {
   challengeId: string;
   latitude: number;
   longitude: number;
+  accuracy_meters?: number | null;
   wardId?: string | null;
   musterPointId?: string | null;
 }): Promise<AttendanceCheckInResponse> {
@@ -138,6 +146,7 @@ export async function submitOtpAttendance(params: {
     challenge_id: params.challengeId,
     latitude: params.latitude,
     longitude: params.longitude,
+    accuracy_meters: params.accuracy_meters || undefined,
     ward_id: params.wardId || undefined,
     muster_point_id: params.musterPointId || undefined,
   });
@@ -149,12 +158,14 @@ export async function submitOtpAttendance(params: {
 export async function submitCheckOut(params: {
   latitude: number;
   longitude: number;
+  accuracy_meters?: number | null;
   wardId?: string | null;
   musterPointId?: string | null;
 }): Promise<AttendanceCheckOutResponse> {
   return apiClient.post<AttendanceCheckOutResponse>('/attendance/check-out', {
     latitude: params.latitude,
     longitude: params.longitude,
+    accuracy_meters: params.accuracy_meters || undefined,
     ward_id: params.wardId || undefined,
     muster_point_id: params.musterPointId || undefined,
   });

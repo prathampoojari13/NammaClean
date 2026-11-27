@@ -87,6 +87,16 @@ class User(Base):
         String(100),
         nullable=True,
     )
+    official_id: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
+    phone_number: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

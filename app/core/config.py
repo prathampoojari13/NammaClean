@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     SIMULATION_ENABLED: bool = False
     VEHICLE_FRESHNESS_MINUTES: int = 15
 
+    # SMTP / Transactional Email Delivery Configuration
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: str = "attendance@nammaclean.karnataka.gov.in"
+    SMTP_TLS: bool = True
+
     # Evidence Storage Configuration (Local filesystem storage for development)
     EVIDENCE_STORAGE_PATH: str = "data/uploads/evidence"
     MAX_EVIDENCE_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB limit

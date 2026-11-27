@@ -70,6 +70,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 
+from app.api.v1.health import get_system_health
+
+
 @app.get("/", tags=["Root"])
 async def root():
     """Root entrypoint linking to interactive documentation."""
@@ -79,3 +82,9 @@ async def root():
         "health_check": f"{settings.API_V1_STR}/health",
         "environment": settings.APP_ENV,
     }
+
+
+@app.get("/health", tags=["Root"])
+async def health_check():
+    """Root-level health check alias."""
+    return await get_system_health()

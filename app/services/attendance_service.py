@@ -352,13 +352,16 @@ async def record_check_in(
     latitude: float,
     longitude: float,
     check_in_time: Optional[datetime] = None,
+    accuracy_meters: Optional[float] = None,
+    schedule_id: Optional[uuid.UUID] = None,
+    additional_exception: Optional[str] = None,
 ) -> AttendanceRecord:
     """
     Records an attendance check-in for an eligible sanitation worker.
 
     - Verifies worker eligibility, ward assignment, muster point validity, and daily uniqueness.
     - Validates device GPS coordinates and computes distance to the muster point.
-    - If within geofence: sets status to PRESENT.
+    - If within geofence: sets status to PRESENT (unless additional_exception provided).
     - If outside geofence: sets status to EXCEPTION_PENDING and logs distance exception reason.
     - Stores coordinates in PostGIS POINT geometry (SRID 4326, X=longitude, Y=latitude).
     - Flushes atomically within a nested savepoint to catch concurrent duplicate submissions.
@@ -379,15 +382,17 @@ async def record_check_in(
     distance, is_within_geofence = validate_gps_proximity(latitude, longitude, muster_point)
 
     # 4. Status and exception determination
-    if is_within_geofence:
+    if is_within_geofence and not additional_exception:
         status = AttendanceStatus.PRESENT.value
         exception_reason = None
     else:
         status = AttendanceStatus.EXCEPTION_PENDING.value
-        exception_reason = (
-            f"Check-in outside geofence: distance {distance:.1f}m exceeds "
-            f"radius {muster_point.geofence_radius_meters}m"
-        )
+        exc_parts = []
+        if not is_within_geofence:
+            exc_parts.append(f"Check-in outside geofence: distance {distance:.1f}m exceeds radius {muster_point.geofence_radius_meters}m")
+        if additional_exception:
+            exc_parts.append(additional_exception)
+        exception_reason = "; ".join(exc_parts)
 
     # 5. Construct PostGIS POINT geometry with SRID 4326 (X=lon, Y=lat)
     point_geom = WKTElement(f"POINT({longitude} {latitude})", srid=4326)
@@ -398,10 +403,12 @@ async def record_check_in(
         worker_id=worker.id,
         ward_id=ward_id,
         muster_point_id=muster_point.id,
+        schedule_id=schedule_id,
         attendance_date=attendance_date,
         check_in_at=check_in_at,
         check_in_location=point_geom,
         check_in_distance_meters=distance,
+        check_in_accuracy_meters=accuracy_meters,
         status=status,
         exception_reason=exception_reason,
         created_at=utc_now(),
@@ -432,6 +439,7 @@ async def record_check_out(
     latitude: float,
     longitude: float,
     check_out_time: Optional[datetime] = None,
+    accuracy_meters: Optional[float] = None,
 ) -> AttendanceRecord:
     """
     Records an attendance check-out for a worker's existing daily attendance record.
@@ -534,6 +542,9 @@ async def record_check_out(
     record.check_out_at = check_out_at
     record.check_out_location = point_geom
     record.check_out_distance_meters = distance
+    record.check_out_accuracy_meters = accuracy_meters
+    if check_in_at_normalized:
+        record.duration_minutes = max(0, int((check_out_at - check_in_at_normalized).total_seconds() / 60))
 
     # 9. Exception status preservation and transition logic
     if record.status == AttendanceStatus.EXCEPTION_PENDING.value:
@@ -655,6 +666,7 @@ async def redeem_qr_attendance(
     latitude: float,
     longitude: float,
     device_timestamp: Optional[datetime] = None,
+    accuracy_meters: Optional[float] = None,
     *,
     check_in_time: Optional[datetime] = None,
 ) -> Tuple[AttendanceRecord, AttendanceQrToken, float, bool]:
@@ -724,6 +736,7 @@ async def redeem_qr_attendance(
         latitude=latitude,
         longitude=longitude,
         check_in_time=server_now,
+        accuracy_meters=accuracy_meters,
     )
 
     # 7. Atomically mark QR token as redeemed within the same transaction using authoritative server time

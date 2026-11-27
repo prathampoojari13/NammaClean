@@ -89,6 +89,21 @@ class UserProfileUpdateRequest(BaseModel):
         max_length=100,
         description="Citizen's preferred display or full name.",
     )
+    phone_number: Optional[str] = Field(
+        default=None,
+        max_length=20,
+        description="Contact phone number (10 to 15 digits).",
+    )
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = re.sub(r"[\s\-\(\)\+]", "", v)
+        if cleaned and not (cleaned.isdigit() and 10 <= len(cleaned) <= 15):
+            raise ValueError("Phone number must contain between 10 and 15 digits.")
+        return v
 
 
 class UserResponse(BaseModel):
@@ -102,6 +117,8 @@ class UserResponse(BaseModel):
     email: str
     role: str
     status: str
+    official_id: Optional[str] = None
+    phone_number: Optional[str] = None
     ward_id: Optional[uuid.UUID] = None
     locality: Optional[str] = None
     address: Optional[str] = None
@@ -136,6 +153,25 @@ class AdminUserCreateRequest(BaseModel):
     status: UserStatus = Field(
         default=UserStatus.ACTIVE,
         description="Initial operational account status.",
+    )
+    full_name: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Full legal name of the personnel.",
+    )
+    official_id: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Government / BBMP Employee or Contractor ID.",
+    )
+    phone_number: Optional[str] = Field(
+        default=None,
+        max_length=20,
+        description="Contact phone number.",
+    )
+    ward_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="Optional initial ward assignment.",
     )
 
     @field_validator("email")

@@ -72,6 +72,12 @@ async def update_current_user_profile(
         return UserResponse.model_validate(current_user)
 
     if "ward_id" in update_data:
+        # Operational personnel cannot alter their assigned ward
+        if current_user.role in ("SANITATION_WORKER", "DRIVER", "WARD_SUPERVISOR"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operational personnel cannot modify their assigned administrative ward.",
+            )
         ward_id = update_data["ward_id"]
         if ward_id is not None:
             stmt = select(Ward).where(Ward.id == ward_id)
@@ -94,6 +100,9 @@ async def update_current_user_profile(
 
     if "full_name" in update_data:
         current_user.full_name = update_data["full_name"]
+
+    if "phone_number" in update_data:
+        current_user.phone_number = update_data["phone_number"]
 
     current_user.updated_at = utc_now()
 

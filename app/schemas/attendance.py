@@ -57,6 +57,11 @@ class AttendanceQrCheckInRequest(BaseModel):
         ...,
         description="Device longitude coordinate (-180.0 to 180.0).",
     )
+    accuracy_meters: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Device GPS accuracy radius in meters.",
+    )
     device_timestamp: Optional[datetime] = Field(
         default=None,
         description="Optional device timestamp at scan instant (untrusted client telemetry only; official attendance and token expiry are determined by authoritative server clock).",
@@ -114,6 +119,11 @@ class AttendanceCheckOutRequest(BaseModel):
         ...,
         description="Device longitude coordinate (-180.0 to 180.0) at check-out location.",
     )
+    accuracy_meters: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Device GPS accuracy radius in meters at check-out.",
+    )
     ward_id: Optional[uuid.UUID] = Field(
         default=None,
         description="Optional administrative ward UUID. If omitted, resolved from today's attendance record.",
@@ -156,6 +166,7 @@ class AttendanceCheckOutResponse(BaseModel):
     status: str = Field(..., description="Attendance status (e.g. PRESENT or EXCEPTION_PENDING).")
     distance_meters: Optional[float] = Field(default=None, description="Calculated Haversine distance in meters to muster point.")
     is_within_geofence: bool = Field(..., description="Whether check-out coordinates were within geofence radius.")
+    duration_minutes: Optional[int] = Field(default=None, description="Total shift duration in minutes.")
     exception_reason: Optional[str] = Field(default=None, description="Reason if flagged as EXCEPTION_PENDING.")
     message: str = Field(..., description="Human-readable result summary.")
 
@@ -167,6 +178,8 @@ class AttendanceDailyItemResponse(BaseModel):
     id: uuid.UUID = Field(..., description="Attendance record UUID.")
     worker_id: uuid.UUID = Field(..., description="Worker UUID.")
     worker_email: Optional[str] = Field(default=None, description="Worker registered email address.")
+    worker_name: Optional[str] = Field(default=None, description="Worker full name.")
+    official_id: Optional[str] = Field(default=None, description="Official employee identification code.")
     ward_id: uuid.UUID = Field(..., description="Ward UUID.")
     muster_point_id: Optional[uuid.UUID] = Field(default=None, description="Muster station UUID.")
     muster_point_name: Optional[str] = Field(default=None, description="Muster station name.")
@@ -174,8 +187,11 @@ class AttendanceDailyItemResponse(BaseModel):
     check_in_at: Optional[datetime] = Field(default=None, description="UTC check-in timestamp.")
     check_out_at: Optional[datetime] = Field(default=None, description="UTC check-out timestamp.")
     status: str = Field(..., description="Attendance lifecycle status.")
+    duration_minutes: Optional[int] = Field(default=None, description="Total shift duration in minutes.")
     check_in_distance_meters: Optional[float] = Field(default=None, description="Check-in distance to station.")
     check_out_distance_meters: Optional[float] = Field(default=None, description="Check-out distance to station.")
+    check_in_accuracy_meters: Optional[float] = Field(default=None, description="GPS accuracy in meters on check-in.")
+    check_out_accuracy_meters: Optional[float] = Field(default=None, description="GPS accuracy in meters on check-out.")
     exception_reason: Optional[str] = Field(default=None, description="Geofence or audit exception reason.")
     reviewed_by: Optional[uuid.UUID] = Field(default=None, description="Reviewer UUID if reviewed.")
     reviewed_at: Optional[datetime] = Field(default=None, description="UTC review timestamp.")
@@ -244,6 +260,7 @@ class AttendanceOtpIssueResponse(BaseModel):
     expires_in_seconds: int = Field(default=300, description="Expiration TTL in seconds.")
     worker_email: str = Field(..., description="Registered worker email address where OTP was dispatched.")
     message: str = Field(..., description="Status message.")
+    delivery_status: Optional[str] = Field(default=None, description="Honest email delivery pipeline status.")
     dev_otp: Optional[str] = Field(
         default=None,
         description="Local development demonstration OTP code. Strictly omitted/null in production or staging environments.",
@@ -281,6 +298,7 @@ class AttendanceOtpCheckInRequest(BaseModel):
     challenge_id: str = Field(..., description="Verified OTP challenge ID.")
     latitude: float = Field(..., description="Device latitude coordinate (-90.0 to 90.0).")
     longitude: float = Field(..., description="Device longitude coordinate (-180.0 to 180.0).")
+    accuracy_meters: Optional[float] = Field(default=None, ge=0.0, description="Device GPS accuracy radius in meters.")
     ward_id: Optional[uuid.UUID] = Field(default=None, description="Assigned ward UUID.")
     muster_point_id: Optional[uuid.UUID] = Field(default=None, description="Assigned muster point UUID.")
     device_timestamp: Optional[datetime] = Field(default=None, description="Client device timestamp.")

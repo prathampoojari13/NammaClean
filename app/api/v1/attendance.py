@@ -50,6 +50,7 @@ from app.schemas.attendance import (
 from app.services.attendance_service import (
     generate_qr_token,
     redeem_qr_attendance,
+    record_check_in,
     record_check_out,
     review_attendance_record,
     get_daily_attendance_roster,
@@ -69,6 +70,14 @@ from app.services.attendance_service import (
     InvalidCoordinateError,
     InvalidAttendanceTimeError,
 )
+from app.services.schedule_service import (
+    get_resolved_worker_schedule,
+    validate_check_in_window,
+    get_kolkata_today,
+    get_kolkata_now,
+    format_12hr,
+)
+from app.services.notification_service import create_notification
 from app.core.rate_limit import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -177,6 +186,7 @@ async def qr_check_in(
             latitude=payload.latitude,
             longitude=payload.longitude,
             device_timestamp=payload.device_timestamp,
+            accuracy_meters=payload.accuracy_meters,
         )
         await db.commit()
         await db.refresh(record)
@@ -299,6 +309,7 @@ async def check_out(
             latitude=payload.latitude,
             longitude=payload.longitude,
             check_out_time=server_now,
+            accuracy_meters=payload.accuracy_meters,
         )
         await db.commit()
         await db.refresh(record)
@@ -313,6 +324,24 @@ async def check_out(
             else "Check-out recorded outside designated geofence. Exception logged for supervisor review."
         )
 
+        # Dispatch notification to worker
+        hrs = (record.duration_minutes or 0) // 60
+        mins = (record.duration_minutes or 0) % 60
+        dur_str = f"{hrs}h {mins}m" if hrs else f"{mins}m"
+        try:
+            await create_notification(
+                db=db,
+                user_id=current_user.id,
+                title="Shift Check-Out Recorded",
+                message=f"You have checked out of your shift. Total duration recorded: {dur_str} ({record.duration_minutes or 0} mins).",
+                notification_type="ATTENDANCE",
+                related_entity_type="ATTENDANCE",
+                related_entity_id=record.id,
+            )
+            await db.commit()
+        except Exception as notif_err:
+            logger.warning("Failed to dispatch check-out notification: %s", str(notif_err))
+
         return AttendanceCheckOutResponse(
             attendance_id=record.id,
             worker_id=record.worker_id,
@@ -324,6 +353,7 @@ async def check_out(
             status=record.status,
             distance_meters=record.check_out_distance_meters,
             is_within_geofence=is_within,
+            duration_minutes=record.duration_minutes,
             exception_reason=record.exception_reason,
             message=msg,
         )
@@ -413,12 +443,16 @@ async def get_daily_roster(
     items = []
     for r in records:
         worker_email = r.worker.email if r.worker else None
+        worker_name = r.worker.full_name if r.worker else None
+        official_id = r.worker.official_id if r.worker else None
         mp_name = r.muster_point.name if r.muster_point else None
         items.append(
             AttendanceDailyItemResponse(
                 id=r.id,
                 worker_id=r.worker_id,
                 worker_email=worker_email,
+                worker_name=worker_name,
+                official_id=official_id,
                 ward_id=r.ward_id,
                 muster_point_id=r.muster_point_id,
                 muster_point_name=mp_name,
@@ -426,8 +460,11 @@ async def get_daily_roster(
                 check_in_at=r.check_in_at,
                 check_out_at=r.check_out_at,
                 status=r.status,
+                duration_minutes=r.duration_minutes,
                 check_in_distance_meters=r.check_in_distance_meters,
                 check_out_distance_meters=r.check_out_distance_meters,
+                check_in_accuracy_meters=r.check_in_accuracy_meters,
+                check_out_accuracy_meters=r.check_out_accuracy_meters,
                 exception_reason=r.exception_reason,
                 reviewed_by=r.reviewed_by,
                 reviewed_at=r.reviewed_at,
@@ -519,6 +556,22 @@ async def review_attendance(
             else "Attendance exception rejected. Status updated to REJECTED."
         )
 
+        try:
+            action_title = "Approved" if payload.action == AttendanceReviewAction.APPROVE else "Rejected"
+            action_verb = "approved" if payload.action == AttendanceReviewAction.APPROVE else "rejected"
+            await create_notification(
+                db=db,
+                user_id=updated_record.worker_id,
+                title=f"Attendance Exception {action_title}",
+                message=f"Your attendance exception for {updated_record.attendance_date} has been {action_verb} by your supervisor.{f' Note: {payload.review_notes}' if payload.review_notes else ''}",
+                notification_type="ATTENDANCE_REVIEW",
+                related_entity_type="ATTENDANCE",
+                related_entity_id=updated_record.id,
+            )
+            await db.commit()
+        except Exception as notif_err:
+            logger.warning("Failed to dispatch attendance review notification: %s", str(notif_err))
+
         return AttendanceReviewResponse(
             attendance_id=updated_record.id,
             worker_id=updated_record.worker_id,
@@ -574,7 +627,37 @@ from app.schemas.attendance import (
 )
 async def request_attendance_otp(
     current_user: User = Depends(require_roles(UserRole.SANITATION_WORKER)),
+    db: Optional[AsyncSession] = Depends(get_db),
 ) -> AttendanceOtpIssueResponse:
+    if isinstance(db, AsyncSession):
+        today = get_kolkata_today()
+        # 1. Reject if already checked in today
+        stmt_dup = select(AttendanceRecord).where(
+            AttendanceRecord.worker_id == current_user.id,
+            AttendanceRecord.attendance_date == today,
+        )
+        res_dup = await db.execute(stmt_dup)
+        if res_dup.scalars().first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Attendance already recorded for today ({today}). Duplicate check-in is not permitted.",
+            )
+
+        # 2. Check-in window validation against assigned recurring schedule
+        resolved_sched = await get_resolved_worker_schedule(db, current_user.id, today)
+        if resolved_sched.schedule_id:
+            if not resolved_sched.is_scheduled_workday:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Today is not a scheduled working day ({resolved_sched.reason or 'Scheduled off'}).",
+                )
+            can_proceed, flag, win_msg = validate_check_in_window(resolved_sched)
+            if not can_proceed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=win_msg,
+                )
+
     try:
         challenge_id, expires_in, raw_otp = otp_manager.request_otp(
             worker_id=current_user.id,
@@ -591,11 +674,29 @@ async def request_attendance_otp(
 
         dev_otp_val = raw_otp if is_dev_mode else None
 
+        delivery_status = "LOCAL_DEV_SIMULATED"
+        if getattr(settings, "SMTP_HOST", None):
+            try:
+                from app.services.email_service import send_attendance_otp_email
+                import asyncio
+                asyncio.create_task(send_attendance_otp_email(current_user.email, raw_otp))
+                delivery_status = f"DISPATCHED_SMTP_{settings.SMTP_HOST}"
+            except Exception as e:
+                logger.warning("SMTP background task could not be started: %s", str(e))
+                delivery_status = "SMTP_FAILED"
+
+        msg = (
+            f"Verification code sent to {current_user.email}."
+            if delivery_status.startswith("DISPATCHED")
+            else f"Verification code generated for {current_user.email} (SMTP unconfigured in development environment)."
+        )
+
         return AttendanceOtpIssueResponse(
             challenge_id=challenge_id,
             expires_in_seconds=expires_in,
             worker_email=current_user.email,
-            message="Verification code dispatched to your registered email address.",
+            message=msg,
+            delivery_status=delivery_status,
             dev_otp=dev_otp_val,
         )
     except ValueError as exc:
@@ -687,6 +788,27 @@ async def otp_check_in(
             detail="No active ward assignment or muster station found for this worker.",
         )
 
+    # 2b. Check schedule and attendance window
+    today = get_kolkata_today()
+    resolved_sched = await get_resolved_worker_schedule(db, current_user.id, today)
+    schedule_id = None
+    additional_exception = None
+    if resolved_sched.schedule_id:
+        schedule_id = resolved_sched.schedule_id
+        if not resolved_sched.is_scheduled_workday:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Today is not a scheduled working day ({resolved_sched.reason or 'Scheduled off'}).",
+            )
+        can_proceed, flag, win_msg = validate_check_in_window(resolved_sched)
+        if not can_proceed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=win_msg,
+            )
+        if flag == "LATE_EXCEPTION":
+            additional_exception = f"Late check-in outside scheduled window: {win_msg}"
+
     # 3. Record attendance using authoritative core service
     try:
         record = await record_check_in(
@@ -697,6 +819,9 @@ async def otp_check_in(
             latitude=payload.latitude,
             longitude=payload.longitude,
             check_in_time=utc_now(),
+            accuracy_meters=payload.accuracy_meters,
+            schedule_id=schedule_id,
+            additional_exception=additional_exception,
         )
         await db.commit()
         await db.refresh(record)
@@ -705,8 +830,47 @@ async def otp_check_in(
         msg = (
             "Check-in verified within muster point geofence."
             if is_within
-            else "Check-in recorded with exception (outside designated geofence). Supervisor review required."
+            else "Check-in recorded with exception (outside designated geofence or late). Supervisor review required."
         )
+
+        # Notify worker
+        try:
+            status_desc = "On-time" if is_within else "Exception Pending Review"
+            await create_notification(
+                db=db,
+                user_id=current_user.id,
+                title=f"Attendance Recorded ({status_desc})",
+                message=f"Check-in recorded at {format_12hr(get_kolkata_now().strftime('%H:%M'))} IST. Status: {record.status}." + (f" Exception: {record.exception_reason}" if record.exception_reason else ""),
+                notification_type="ATTENDANCE",
+                related_entity_type="ATTENDANCE",
+                related_entity_id=record.id,
+            )
+
+            # If exception, notify ward supervisor(s)
+            if record.status == AttendanceStatus.EXCEPTION_PENDING.value:
+                stmt_sups = (
+                    select(UserWardAssignment.user_id)
+                    .join(User, UserWardAssignment.user_id == User.id)
+                    .where(
+                        UserWardAssignment.ward_id == ward_id,
+                        UserWardAssignment.revoked_at.is_(None),
+                        User.role == UserRole.WARD_SUPERVISOR.value,
+                    )
+                )
+                res_sups = await db.execute(stmt_sups)
+                for sup_id in res_sups.scalars().all():
+                    await create_notification(
+                        db=db,
+                        user_id=sup_id,
+                        title="Attendance Exception Pending Review",
+                        message=f"Worker {current_user.full_name or current_user.email} flagged an attendance exception: {record.exception_reason}",
+                        notification_type="ATTENDANCE_EXCEPTION",
+                        related_entity_type="ATTENDANCE",
+                        related_entity_id=record.id,
+                    )
+            await db.commit()
+        except Exception as notif_err:
+            logger.warning("Failed to dispatch attendance notification: %s", str(notif_err))
 
         return AttendanceQrCheckInResponse(
             attendance_id=record.id,
@@ -780,6 +944,8 @@ async def get_worker_today_attendance(
         id=record.id,
         worker_id=record.worker_id,
         worker_email=current_user.email,
+        worker_name=current_user.full_name,
+        official_id=current_user.official_id,
         ward_id=record.ward_id,
         muster_point_id=record.muster_point_id,
         muster_point_name=mp_name,
@@ -787,8 +953,11 @@ async def get_worker_today_attendance(
         check_in_at=record.check_in_at,
         check_out_at=record.check_out_at,
         status=record.status,
+        duration_minutes=record.duration_minutes,
         check_in_distance_meters=record.check_in_distance_meters,
         check_out_distance_meters=record.check_out_distance_meters,
+        check_in_accuracy_meters=record.check_in_accuracy_meters,
+        check_out_accuracy_meters=record.check_out_accuracy_meters,
         exception_reason=record.exception_reason,
         reviewed_by=record.reviewed_by,
         reviewed_at=record.reviewed_at,
