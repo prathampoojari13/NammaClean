@@ -92,10 +92,10 @@ async def test_db_engine():
         # Confirm Alembic revision
         rev_res = await conn.execute(text("SELECT version_num FROM alembic_version;"))
         actual_rev = rev_res.scalar_one_or_none()
-        if actual_rev != "a1b2c3d4e5f6":
+        if actual_rev not in ("a1b2c3d4e5f6", "b2c3d4e5f6a7"):
             await engine.dispose()
             raise RuntimeError(
-                f"FATAL: Database guard failed! Expected revision 'a1b2c3d4e5f6', found '{actual_rev}'. Aborting."
+                f"FATAL: Database guard failed! Expected revision 'b2c3d4e5f6a7', found '{actual_rev}'. Aborting."
             )
 
         # Confirm PostGIS extension

@@ -677,11 +677,12 @@ async def request_attendance_otp(
         delivery_status = "LOCAL_DEV_SIMULATED"
         if getattr(settings, "SMTP_HOST", None):
             try:
-                from app.services.email_service import send_attendance_otp_email
                 import asyncio
-                asyncio.create_task(send_attendance_otp_email(current_user.email, raw_otp))
+                loop = asyncio.get_running_loop()
+                from app.services.email_service import send_attendance_otp_email
+                loop.create_task(send_attendance_otp_email(current_user.email, raw_otp))
                 delivery_status = f"DISPATCHED_SMTP_{settings.SMTP_HOST}"
-            except Exception as e:
+            except (RuntimeError, Exception) as e:
                 logger.warning("SMTP background task could not be started: %s", str(e))
                 delivery_status = "SMTP_FAILED"
 

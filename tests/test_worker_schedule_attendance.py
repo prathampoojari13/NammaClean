@@ -484,3 +484,83 @@ async def test_attendance_checkout_duration(
         headers={"Authorization": f"Bearer {worker_token}"},
     )
     assert res_dup.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_supervisor_list_workers_search_filter(
+    async_client: AsyncClient,
+    async_db_session: AsyncSession,
+):
+    """Verify supervisor worker directory search query filter (?q=...) functions correctly."""
+    ward = Ward(
+        ward_code=f"WARD-SRCH-{uuid.uuid4().hex[:6]}",
+        display_name=f"Ward Search {uuid.uuid4().hex[:4]}",
+    )
+    async_db_session.add(ward)
+    await async_db_session.commit()
+
+    supervisor = User(
+        email=f"sup_srch_{uuid.uuid4().hex[:6]}@nammaclean.test",
+        password_hash=hash_password("SupervisorPass123!"),
+        role=UserRole.WARD_SUPERVISOR.value,
+        status=UserStatus.ACTIVE.value,
+        full_name="Search Supervisor",
+        ward_id=ward.id,
+    )
+    worker_1 = User(
+        email=f"aarav_{uuid.uuid4().hex[:6]}@nammaclean.test",
+        password_hash=hash_password("WorkerPass123!"),
+        role=UserRole.SANITATION_WORKER.value,
+        status=UserStatus.ACTIVE.value,
+        full_name="Aarav Gowda",
+        official_id=f"PK-SRCH-1-{uuid.uuid4().hex[:4]}",
+        ward_id=ward.id,
+    )
+    worker_2 = User(
+        email=f"bhaskar_{uuid.uuid4().hex[:6]}@nammaclean.test",
+        password_hash=hash_password("WorkerPass123!"),
+        role=UserRole.SANITATION_WORKER.value,
+        status=UserStatus.ACTIVE.value,
+        full_name="Bhaskar Kumar",
+        official_id=f"PK-SRCH-2-{uuid.uuid4().hex[:4]}",
+        ward_id=ward.id,
+    )
+    async_db_session.add_all([supervisor, worker_1, worker_2])
+    await async_db_session.commit()
+
+    sup_assign = UserWardAssignment(user_id=supervisor.id, ward_id=ward.id, assigned_at=utc_now())
+    w1_assign = UserWardAssignment(user_id=worker_1.id, ward_id=ward.id, assigned_at=utc_now())
+    w2_assign = UserWardAssignment(user_id=worker_2.id, ward_id=ward.id, assigned_at=utc_now())
+    async_db_session.add_all([sup_assign, w1_assign, w2_assign])
+    await async_db_session.commit()
+
+    sup_token = create_access_token(subject=supervisor.id)
+
+    # 1. Search for Aarav
+    res_aarav = await async_client.get(
+        f"/api/v1/supervisor/workers?ward_id={ward.id}&q=Aarav",
+        headers={"Authorization": f"Bearer {sup_token}"},
+    )
+    assert res_aarav.status_code == 200
+    aarav_data = res_aarav.json()
+    assert len(aarav_data) == 1
+    assert aarav_data[0]["full_name"] == "Aarav Gowda"
+
+    # 2. Search for official ID
+    res_off = await async_client.get(
+        f"/api/v1/supervisor/workers?ward_id={ward.id}&q={worker_2.official_id}",
+        headers={"Authorization": f"Bearer {sup_token}"},
+    )
+    assert res_off.status_code == 200
+    off_data = res_off.json()
+    assert len(off_data) == 1
+    assert off_data[0]["full_name"] == "Bhaskar Kumar"
+
+    # 3. Search for non-matching query
+    res_none = await async_client.get(
+        f"/api/v1/supervisor/workers?ward_id={ward.id}&q=NonExistentWorkerXYZ",
+        headers={"Authorization": f"Bearer {sup_token}"},
+    )
+    assert res_none.status_code == 200
+    assert len(res_none.json()) == 0
+

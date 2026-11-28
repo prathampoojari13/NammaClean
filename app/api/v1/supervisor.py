@@ -9,7 +9,7 @@ import logging
 from datetime import date, datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, or_, and_, update
+from sqlalchemy import select, or_, and_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles, verify_ward_access
@@ -489,7 +489,7 @@ async def assign_schedule(
     await db.refresh(new_sched)
 
     # Resolve ward name
-    stmt_ward = select(Ward.display_name).where(Ward.id == payload.ward_id)
+    stmt_ward = select(Ward.display_name).where(Ward.id == resolved_ward_id)
     res_ward = await db.execute(stmt_ward)
     ward_name = res_ward.scalar_one_or_none()
 
