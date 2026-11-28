@@ -16,6 +16,9 @@ export const RegisterPage: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
     setError(null);
 
     if (password !== confirmPassword) {
@@ -32,9 +35,24 @@ export const RegisterPage: React.FC = () => {
       await apiClient.post<User>('/auth/register', { email, password });
       navigate('/login', { replace: true, state: { registered: true } });
     } catch (reason) {
-      const detail = typeof reason === 'object' && reason !== null && 'detail' in reason
-        ? String((reason as { detail: unknown }).detail)
-        : 'Could not create your citizen account. Please try again.';
+      let detail = 'Could not create your citizen account. Please try again.';
+      if (typeof reason === 'object' && reason !== null) {
+        if ('detail' in reason) {
+          const rawDetail = (reason as { detail: unknown }).detail;
+          if (typeof rawDetail === 'string') {
+            detail = rawDetail;
+          } else if (Array.isArray(rawDetail) && rawDetail.length > 0) {
+            const firstErr = rawDetail[0];
+            detail = typeof firstErr === 'object' && firstErr !== null && 'msg' in firstErr
+              ? String(firstErr.msg)
+              : typeof firstErr === 'string'
+                ? firstErr
+                : JSON.stringify(firstErr);
+          }
+        } else if (reason instanceof Error) {
+          detail = reason.message;
+        }
+      }
       setError(detail);
     } finally {
       setSubmitting(false);
@@ -51,13 +69,14 @@ export const RegisterPage: React.FC = () => {
           <p className="nc-login-subtitle">Register to access Bengaluru's public civic dashboard.</p>
         </div>
         {error && <Alert type="danger" title="Registration failed">{error}</Alert>}
-        <form onSubmit={handleSubmit} className="nc-login-form">
+        <form onSubmit={handleSubmit} className="nc-login-form" aria-busy={submitting}>
           <label htmlFor="register-email">Email address</label>
           <input
             id="register-email"
             type="email"
             autoComplete="email"
             required
+            disabled={submitting}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
@@ -68,6 +87,7 @@ export const RegisterPage: React.FC = () => {
             autoComplete="new-password"
             required
             minLength={12}
+            disabled={submitting}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
@@ -78,11 +98,19 @@ export const RegisterPage: React.FC = () => {
             autoComplete="new-password"
             required
             minLength={12}
+            disabled={submitting}
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
           />
           <p className="nc-auth-password-note">Use at least 12 characters.</p>
-          <Button type="submit" variant="primary" isLoading={submitting} style={{ width: '100%', minHeight: 46 }}>
+          <Button
+            type="submit"
+            variant="primary"
+            isLoading={submitting}
+            loadingText="Creating account..."
+            disabled={submitting}
+            style={{ width: '100%', minHeight: 46 }}
+          >
             Create citizen account
           </Button>
         </form>

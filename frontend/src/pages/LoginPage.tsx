@@ -74,6 +74,9 @@ export const LoginPage: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
     setSubmitting(true);
     setError(null);
 
@@ -166,6 +169,8 @@ export const LoginPage: React.FC = () => {
             type="submit"
             variant="primary"
             isLoading={submitting}
+            loadingText="Signing in..."
+            disabled={submitting}
             style={{ width: '100%', minHeight: 58, gap: 12, borderRadius: 12, fontWeight: 700 }}
           >
             <span>Login</span>

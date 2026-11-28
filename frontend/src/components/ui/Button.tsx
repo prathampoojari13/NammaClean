@@ -4,6 +4,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
+  loadingText?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -11,6 +12,7 @@ export const Button: React.FC<ButtonProps> = ({
   variant = 'primary',
   size = 'md',
   isLoading = false,
+  loadingText,
   disabled,
   style,
   ...props
@@ -70,6 +72,7 @@ export const Button: React.FC<ButtonProps> = ({
       {isLoading ? (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
           <span
+            aria-hidden="true"
             style={{
               width: '1em',
               height: '1em',
@@ -80,7 +83,7 @@ export const Button: React.FC<ButtonProps> = ({
               animation: 'spin 0.75s linear infinite',
             }}
           />
-          Loading...
+          {loadingText || 'Loading...'}
         </span>
       ) : (
         children
